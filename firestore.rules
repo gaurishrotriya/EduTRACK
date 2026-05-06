@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // Role Helpers
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isTeacher() {
+      return isVerified() && getUserData().role == 'teacher';
+    }
+    function isStudent() {
+      return isVerified() && getUserData().role == 'student';
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- 1. Users ---
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'email', 'role', 'name']) &&
+               data.uid == request.auth.uid &&
+               data.email is string &&
+               data.role in ['teacher', 'student'];
+      }
+      
+      allow get, list: if isSignedIn();
+      allow create: if isVerified() && isValidUser(incoming()) && isValidId(userId);
+      allow update: if isVerified() && (isOwner(userId) || isTeacher()) &&
+                       incoming().diff(existing()).affectedKeys().hasAny(['name', 'points', 'classId']) &&
+                       (incoming().role == existing().role);
+    }
+
+    // --- 1.1 Classes ---
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow create: if isTeacher();
+      allow update: if isTeacher(); // Future: check if member
+    }
+
+    // --- 2. Categories ---
+    match /categories/{categoryId} {
+      function isValidCategory(data) {
+        return data.keys().hasAll(['name', 'teacherId']) &&
+               data.name is string && data.name.size() <= 50 &&
+               data.teacherId == request.auth.uid;
+      }
+      allow read: if isSignedIn();
+      allow create, update: if isTeacher() && isValidCategory(incoming()) && isValidId(categoryId);
+      allow delete: if isTeacher() && existing().teacherId == request.auth.uid;
+    }
+
+    // --- 3. Assignments ---
+    match /assignments/{assignmentId} {
+      function isValidAssignment(data) {
+        return data.keys().hasAll(['title', 'subject', 'dueDate', 'teacherId']) &&
+               data.title is string && data.title.size() <= 100 &&
+               data.teacherId == request.auth.uid;
+      }
+      allow read: if isSignedIn();
+      allow create: if isTeacher() && isValidAssignment(incoming()) && isValidId(assignmentId);
+      allow update: if isTeacher() && existing().teacherId == request.auth.uid && isValidAssignment(incoming());
+      allow delete: if isTeacher() && existing().teacherId == request.auth.uid;
+    }
+
+    // --- 4. Submissions ---
+    match /submissions/{submissionId} {
+      function isValidSubmission(data) {
+        return data.keys().hasAll(['assignmentId', 'studentId', 'status']) &&
+               data.assignmentId is string &&
+               data.studentId == request.auth.uid;
+      }
+      
+      allow read: if isSignedIn() && (isTeacher() || isOwner(existing().studentId));
+      allow create: if isStudent() && isValidSubmission(incoming()) && isValidId(submissionId);
+      allow update: if isVerified() && (
+        // Student actions: Submit work
+        (isOwner(existing().studentId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'submittedAt', 'revisionCompleted']) && isStudent()) ||
+        // Teacher actions: Grade work
+        (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'pointsAwarded', 'feedback']))
+      );
+    }
+
+    // --- 5. Tests ---
+    match /tests/{testId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // --- 6. Revision Items ---
+    match /revisionItems/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher();
+    }
+
+    // --- 7. Notifications ---
+    match /notifications/{notifId} {
+      allow read: if isOwner(existing().userId);
+      allow create: if isSignedIn(); // System/Others can notify
+      allow update: if isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isOwner(existing().userId);
+    }
+
+    // --- 8. Messages ---
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.auth.uid == incoming().senderId;
+    }
+  }
+}

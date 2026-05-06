@@ -1,0 +1,6 @@
+{
+  "name": "EduTrack",
+  "description": "A clean, real-time school assignment tracker for teachers and students with calendar views, revision checklists, and an assistant chatbot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

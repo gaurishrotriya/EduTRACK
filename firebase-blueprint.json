@@ -1,0 +1,135 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role, points, and class association",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["teacher", "student"] },
+        "classId": { "type": "string" },
+        "points": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "A school class section (e.g., 9A)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "teacherIds": { "type": "array", "items": { "type": "string" } },
+        "totalPoints": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Educational tasks targeted at specific classes",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "subject": { "type": "string" },
+        "classId": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "teacherId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "pointsValue": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "archived"] }
+      },
+      "required": ["title", "subject", "dueDate", "teacherId", "classId"]
+    },
+    "Test": {
+      "title": "Test",
+      "description": "Upcoming assessments",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subject": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "teacherId": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["title", "subject", "date", "teacherId"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student work on an assignment",
+      "type": "object",
+      "properties": {
+        "assignmentId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "submitted", "completed", "late"] },
+        "pointsAwarded": { "type": "number" },
+        "feedback": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "revisionCompleted": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["assignmentId", "studentId", "status"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Assignment classification",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "teacherId": { "type": "string" }
+      },
+      "required": ["name", "teacherId"]
+    },
+    "RevisionItem": {
+      "title": "RevisionItem",
+      "description": "Checklist items for assignments or tests",
+      "type": "object",
+      "properties": {
+        "parentId": { "type": "string" },
+        "content": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["parentId", "content"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User alerts",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string" }
+      },
+      "required": ["userId", "message"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "1-to-1 chat messages",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "participants": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["senderId", "receiverId", "text", "participants"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "Global user profiles" },
+    "/classes/{classId}": { "schema": "Class", "description": "School classes" },
+    "/categories/{categoryId}": { "schema": "Category", "description": "Global assignment categories" },
+    "/assignments/{assignmentId}": { "schema": "Assignment", "description": "Global assignments" },
+    "/tests/{testId}": { "schema": "Test", "description": "Global assessments/tests" },
+    "/submissions/{submissionId}": { "schema": "Submission", "description": "Assignment submissions" },
+    "/revisionItems/{revisionItemId}": { "schema": "RevisionItem", "description": "Checklist items" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" },
+    "/messages/{messageId}": { "schema": "Message", "description": "Direct messages" }
+  }
+}
