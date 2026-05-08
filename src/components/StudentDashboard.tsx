@@ -144,15 +144,15 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   const [classStandings, setClassStandings] = useState<{id: string, name: string, points: number}[]>([]);
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
   
-  const [filter, setFilter] = useState<string>("all");
-  const [date, setDate] = useState(new Date());
-  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
-  const [isCompleting, setIsCompleting] = useState(false);
-  const [messagingTeacher, setMessagingTeacher] = useState<UserProfile | null>(null);
-  const [revisionItems, setRevisionItems] = useState<RevisionItem[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showToast, setShowToast] = useState<{message: string, points: number} | null>(null);
 
   useEffect(() => {
     // Real-time listeners
+    const unsubN = onSnapshot(query(collection(db, "notifications"), where("userId", "==", profile.uid)), (snap) => {
+      setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    });
     const unsubA = onSnapshot(query(collection(db, "assignments"), where("classId", "==", profile.classId)), (snap) => {
       setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assignment)));
     });
@@ -242,6 +242,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
 
       const batch = writeBatch(db);
 
+      // We'll create or update the submission and the user points in one batch
       if (!subSnap.exists()) {
         batch.set(subRef, {
           assignmentId: assignment.id,
@@ -249,16 +250,28 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
           status: "submitted",
           submittedAt: serverTimestamp(),
           pointsAwarded: basePoints,
+          revisionCompleted: []
         });
         
         batch.update(doc(db, "users", profile.uid), {
           points: increment(basePoints)
         });
+
+        // Add a notification for the student
+        const notifRef = doc(collection(db, "notifications"));
+        batch.set(notifRef, {
+          userId: profile.uid,
+          message: `😊 Good job ${profile.name}! You earned ${basePoints} points for completing "${assignment.title}".`,
+          read: false,
+          createdAt: new Date().toISOString(),
+          type: 'achievement'
+        });
         
         await batch.commit();
       } else {
         const existingData = subSnap.data() as Submission;
-        if (existingData.status === 'pending' || !existingData.status || existingData.status === 'late' || (existingData as any).status === 'not_started') {
+        // Only reward points if transitioning from non-submitted/completed state
+        if (existingData.status !== 'submitted' && existingData.status !== 'completed') {
           batch.update(subRef, {
             status: "submitted",
             submittedAt: serverTimestamp(),
@@ -269,11 +282,37 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
             points: increment(basePoints)
           });
           
+          // Add a notification for the student
+          const notifRef = doc(collection(db, "notifications"));
+          batch.set(notifRef, {
+            userId: profile.uid,
+            message: `😊 Good job ${profile.name}! You earned ${basePoints} points for completing "${assignment.title}".`,
+            read: false,
+            createdAt: new Date().toISOString(),
+            type: 'achievement'
+          });
+          
           await batch.commit();
+        } else {
+          // If already submitted, just close modal
+           setSelectedAssignment(null);
+           return;
         }
       }
-    } catch (error) {
+      
+      // Success feedback
+      setShowToast({ message: `Good job ${profile.name}!`, points: basePoints });
+      setTimeout(() => setShowToast(null), 5000);
+      setSelectedAssignment(null);
+    } catch (error: any) {
       console.error("Completion error details:", error);
+      // Try to parse firestore error if it matches our expected JSON format
+      try {
+        const parsed = JSON.parse(error.message);
+        alert(`Failed to save progress: ${parsed.error}`);
+      } catch {
+        alert("Failed to mark as completed. Please check your connection.");
+      }
       handleFirestoreError(error, OperationType.WRITE, `submissions/${submissionId}`);
     }
   };
@@ -293,38 +332,83 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Navigation Tabs */}
-      <div className="lg:col-span-3 flex items-center gap-6 border-b border-gray-100 pb-4">
-        <button 
-          onClick={() => setActiveTab('dashboard')}
-          className={cn(
-             "flex items-center gap-2 text-sm font-bold transition-colors",
-             activeTab === 'dashboard' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
-          )}
-        >
-          <LayoutDashboard size={18} />
-          Learning Dashboard
-        </button>
-        <button 
-          onClick={() => setActiveTab('messages')}
-          className={cn(
-             "flex items-center gap-2 text-sm font-bold transition-colors",
-             activeTab === 'messages' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
-          )}
-        >
-          <MessageSquare size={18} />
-          Teacher Inbox
-        </button>
-        <button 
-          onClick={() => setActiveTab('profile')}
-          className={cn(
-             "flex items-center gap-2 text-sm font-bold transition-colors",
-             activeTab === 'profile' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
-          )}
-        >
-          <UserIcon size={18} />
-          My Profile
-        </button>
+      <div className="lg:col-span-3 flex items-center justify-between border-b border-gray-100 pb-4">
+        <div className="flex items-center gap-6">
+            <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={cn(
+                    "flex items-center gap-2 text-sm font-bold transition-colors",
+                    activeTab === 'dashboard' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+                )}
+            >
+                <LayoutDashboard size={18} />
+                Learning Dashboard
+            </button>
+            <button 
+                onClick={() => setActiveTab('messages')}
+                className={cn(
+                    "flex items-center gap-2 text-sm font-bold transition-colors",
+                    activeTab === 'messages' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+                )}
+            >
+                <MessageSquare size={18} />
+                Teacher Inbox
+            </button>
+            <button 
+                onClick={() => setActiveTab('profile')}
+                className={cn(
+                    "flex items-center gap-2 text-sm font-bold transition-colors",
+                    activeTab === 'profile' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+                )}
+            >
+                <UserIcon size={18} />
+                My Profile
+            </button>
+        </div>
+
+        <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 rounded-2xl border border-indigo-100">
+                <Trophy size={16} className="text-amber-500" />
+                <span className="text-sm font-black text-indigo-700">{profile.points || 0} <span className="text-[10px] text-indigo-400 font-bold">BP</span></span>
+            </div>
+            <div className="relative">
+                <button 
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-colors relative"
+                >
+                    <Star size={20} className="text-gray-400" />
+                    {notifications.filter(n => !n.read).length > 0 && (
+                        <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white" />
+                    )}
+                </button>
+                <AnimatePresence>
+                    {showNotifications && (
+                        <motion.div 
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            className="absolute right-0 mt-2 w-72 bg-white rounded-3xl shadow-xl border border-gray-100 z-50 p-4 max-h-[400px] overflow-y-auto"
+                        >
+                            <h4 className="font-bold text-gray-900 mb-4 px-2">Notifications</h4>
+                            <div className="space-y-2">
+                                {notifications.length === 0 ? (
+                                    <p className="text-xs text-gray-400 text-center py-8">All caught up!</p>
+                                ) : (
+                                    notifications.map(n => (
+                                        <div key={n.id} className={cn("p-3 rounded-2xl text-xs", n.read ? "bg-white" : "bg-indigo-50")}>
+                                            <p className="font-bold text-gray-900">{n.message}</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">{formatDate(n.createdAt)}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
       </div>
+
 
       <AnimatePresence mode="wait">
         {activeTab === 'dashboard' ? (
@@ -501,9 +585,52 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="lg:col-span-2"
+            className="lg:col-span-2 space-y-8"
           >
             <StudentProfileEditor profile={profile} />
+            
+            <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-gray-900">Completed Assignments</h3>
+                    <div className="flex items-center gap-2 text-indigo-600 font-bold bg-indigo-50 px-3 py-1 rounded-lg text-sm">
+                        <CheckCircle2 size={16} />
+                        {submissions.filter(s => s.status === 'completed' || s.status === 'submitted').length} Done
+                    </div>
+                </div>
+                
+                <div className="space-y-4">
+                    {assignments.filter(a => {
+                        const sub = getSubmissionStatus(a.id);
+                        return sub?.status === 'submitted' || sub?.status === 'completed';
+                    }).length === 0 ? (
+                        <p className="text-sm text-gray-400 italic text-center py-8">No completed assignments yet. Start learning!</p>
+                    ) : (
+                        assignments.filter(a => {
+                            const sub = getSubmissionStatus(a.id);
+                            return sub?.status === 'submitted' || sub?.status === 'completed';
+                        }).map(assignment => {
+                            const sub = getSubmissionStatus(assignment.id);
+                            return (
+                                <div key={assignment.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-transparent hover:border-indigo-100 transition-all">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                                            <BookOpen size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-gray-900">{assignment.title}</p>
+                                            <p className="text-xs text-gray-400 uppercase font-bold tracking-widest">{assignment.subject}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-sm font-black text-indigo-600">+{sub?.pointsAwarded || 0} BP</p>
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase">{sub?.status === 'completed' ? 'Graded' : 'Submitted'}</p>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
           </motion.div>
         ) : (
           <motion.div 
@@ -767,6 +894,26 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
             otherUser={{ uid: messagingTeacher.uid, name: messagingTeacher.name, role: messagingTeacher.role }} 
             onClose={() => setMessagingTeacher(null)} 
           />
+        )}
+      </AnimatePresence>
+
+      {/* Achievement Toast */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div 
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-8 py-4 rounded-3xl shadow-2xl z-[100] flex items-center gap-4"
+          >
+             <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl">
+                😊
+             </div>
+             <div>
+                <p className="font-bold text-lg">{showToast.message}</p>
+                <p className="text-white/80 text-sm font-medium">You earned +{showToast.points} BP!</p>
+             </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

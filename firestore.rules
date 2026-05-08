@@ -83,9 +83,11 @@ service cloud.firestore {
                data.assignmentId is string &&
                data.studentId is string &&
                data.studentId.size() <= 128 &&
-               data.status in ['pending', 'submitted', 'completed', 'late'] &&
+               data.status in ['pending', 'submitted', 'completed', 'late', 'not_started'] &&
                (data.get('pointsAwarded', 0) is number) &&
-               (data.get('submittedAt', request.time) == request.time || data.get('submittedAt', '') is string);
+               (data.get('submittedAt', request.time) == request.time || 
+                data.get('submittedAt', '') is string || 
+                data.get('submittedAt', request.time) is timestamp);
       }
       
       allow read: if isSignedIn() && (isTeacher() || isOwner(existing().studentId));
@@ -97,7 +99,7 @@ service cloud.firestore {
         (isOwner(existing().studentId) && 
          isStudent() && 
          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'submittedAt', 'revisionCompleted', 'pointsAwarded']) && 
-         (incoming().get('status', existing().status) == 'submitted' || incoming().get('status', existing().status) == 'pending')) ||
+         (incoming().get('status', existing().status) in ['submitted', 'pending', 'not_started'])) ||
         // Teacher actions: Grade work
         (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'pointsAwarded', 'feedback']))
       );
