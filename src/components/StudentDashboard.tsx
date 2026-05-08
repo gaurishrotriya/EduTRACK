@@ -736,8 +736,9 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                           try {
                             await handleCompleteAssignment(selectedAssignment);
                             setSelectedAssignment(null);
-                          } catch (error) {
+                          } catch (error: any) {
                             console.error("Completion error:", error);
+                            alert("Failed to mark as completed. " + (error.message || ""));
                           } finally {
                             setIsCompleting(false);
                           }

@@ -31,16 +31,17 @@ service cloud.firestore {
     match /users/{userId} {
       function isValidUser(data) {
         return data.keys().hasAll(['uid', 'email', 'role', 'name']) &&
-               data.uid == request.auth.uid &&
+               data.uid is string &&
                data.email is string &&
                data.role in ['teacher', 'student'];
       }
       
       allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidUser(incoming()) && isValidId(userId);
+      allow create: if isSignedIn() && isValidUser(incoming()) && isValidId(userId) && incoming().uid == request.auth.uid;
       allow update: if isSignedIn() && (isOwner(userId) || isTeacher()) &&
                        incoming().diff(existing()).affectedKeys().hasAny(['name', 'points', 'classId', 'age', 'avatar', 'subjects']) &&
-                       (incoming().role == existing().role);
+                       (!incoming().keys().hasAny(['role']) || incoming().role == existing().role) &&
+                       (!incoming().keys().hasAny(['uid']) || incoming().uid == existing().uid);
     }
 
     // --- 1.1 Classes ---
@@ -91,11 +92,12 @@ service cloud.firestore {
       allow create: if isStudent() && isValidSubmission(incoming()) && 
                        incoming().studentId == request.auth.uid &&
                        isValidId(submissionId);
-      allow update: if isSignedIn() && isValidSubmission(incoming()) && (
+      allow update: if isSignedIn() && isValidId(submissionId) && (
         // Student actions: Submit work or update revision checklist
         (isOwner(existing().studentId) && 
+         isStudent() && 
          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'submittedAt', 'revisionCompleted', 'pointsAwarded']) && 
-         isStudent()) ||
+         (incoming().get('status', existing().status) == 'submitted' || incoming().get('status', existing().status) == 'pending')) ||
         // Teacher actions: Grade work
         (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'pointsAwarded', 'feedback']))
       );
