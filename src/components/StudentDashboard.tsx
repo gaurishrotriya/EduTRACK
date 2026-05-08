@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { UserProfile, Assignment, Submission, Category, Test, RevisionItem, Class } from "../types";
 import { db } from "../firebase";
-import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDoc, arrayUnion } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDoc, arrayUnion, increment, serverTimestamp, writeBatch } from "firebase/firestore";
 import { Calendar as CalendarIcon, CheckCircle2, Circle, Clock, MessageSquare, Trophy, Filter, Star, School, LayoutDashboard, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, formatDate } from "../lib/utils";
@@ -9,24 +9,145 @@ import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
 import Chatbot from "./Chatbot";
 import ChatWindow from "./ChatWindow";
+import { User as UserIcon, Save } from "lucide-react";
+import { auth } from "../firebase";
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+const AVATARS = ["🎓", "🔬", "🎨", "⚽", "🎸", "💻", "📚", "🧬", "🚀", "🍕"];
+
+function StudentProfileEditor({ profile }: { profile: UserProfile }) {
+  const [name, setName] = useState(profile.name);
+  const [age, setAge] = useState(profile.age || 15);
+  const [avatar, setAvatar] = useState(profile.avatar || AVATARS[0]);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "users", profile.uid), {
+        name,
+        age,
+        avatar
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+      <h3 className="text-2xl font-bold text-gray-900 mb-8">Profile Settings</h3>
+      <form onSubmit={handleSave} className="space-y-6">
+        <div className="flex flex-col items-center gap-4 mb-8">
+           <div className="text-6xl bg-indigo-50 w-24 h-24 rounded-3xl flex items-center justify-center border-4 border-indigo-100">
+              {avatar}
+           </div>
+           <div className="flex flex-wrap justify-center gap-2 max-w-sm">
+              {AVATARS.map(a => (
+                <button 
+                  key={a}
+                  type="button"
+                  onClick={() => setAvatar(a)}
+                  className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                    avatar === a ? "bg-indigo-600 text-white scale-110 shadow-lg shadow-indigo-200" : "bg-gray-50 text-gray-400 hover:bg-gray-100"
+                  )}
+                >
+                  {a}
+                </button>
+              ))}
+           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-1">
+            <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Full Name</label>
+            <input 
+              type="text" value={name} 
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Age</label>
+            <input 
+              type="number" value={age} 
+              onChange={(e) => setAge(parseInt(e.target.value))}
+              className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+            />
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-gray-50 flex justify-end">
+           <button 
+             type="submit" 
+             disabled={saving}
+             className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 disabled:opacity-50"
+           >
+             <Save size={20} />
+             {saving ? 'Saving...' : 'Save Profile'}
+           </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 interface StudentDashboardProps {
   profile: UserProfile;
 }
 
 export default function StudentDashboard({ profile }: StudentDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'messages' | 'profile'>('dashboard');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [tests, setTests] = useState<Test[]>([]);
   const [leaderboard, setLeaderboard] = useState<UserProfile[]>([]);
-  const [classStandings, setClassStandings] = useState<{name: string, points: number}[]>([]);
+  const [classStandings, setClassStandings] = useState<{id: string, name: string, points: number}[]>([]);
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
   
   const [filter, setFilter] = useState<string>("all");
   const [date, setDate] = useState(new Date());
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
   const [messagingTeacher, setMessagingTeacher] = useState<UserProfile | null>(null);
   const [revisionItems, setRevisionItems] = useState<RevisionItem[]>([]);
 
@@ -46,15 +167,22 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
     });
     const unsubL = onSnapshot(collection(db, "users"), (snap) => {
       const users = snap.docs.map(d => d.data() as UserProfile);
-      setLeaderboard(users.sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 5));
+      
+      // Filter leaderboard to only show classmates AND teachers (so they can see their rank if they award themselves points)
+      const visibleUsers = users.filter(u => 
+        (u.role === 'student' && u.classId === profile.classId) || 
+        u.role === 'teacher'
+      );
+      setLeaderboard(visibleUsers.sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 10));
 
+      const studentUsers = users.filter(u => u.role === 'student');
       // Aggregate class standings
       onSnapshot(collection(db, "classes"), (cSnap) => {
           const classesData = cSnap.docs.map(d => ({id: d.id, ...d.data()} as Class));
           const standings = classesData.map(c => {
-             const classUsers = users.filter(u => u.classId === c.id);
+             const classUsers = studentUsers.filter(u => u.classId === c.id);
              const userPoints = classUsers.reduce((sum, u) => sum + (u.points || 0), 0);
-             return { name: c.name, points: userPoints };
+             return { id: c.id, name: c.name, points: userPoints };
           }).sort((a,b) => b.points - a.points);
           setClassStandings(standings);
       });
@@ -72,21 +200,31 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   const toggleRevisionItem = async (assignmentId: string, itemId: string) => {
     const subId = `${profile.uid}_${assignmentId}`;
     const subRef = doc(db, "submissions", subId);
-    const subSnap = await getDoc(subRef);
-    
-    if (subSnap.exists()) {
-      const current = (subSnap.data() as Submission).revisionCompleted || [];
-      const updated = current.includes(itemId) 
-        ? current.filter(id => id !== itemId)
-        : [...current, itemId];
-      await updateDoc(subRef, { revisionCompleted: updated });
-    } else {
-      await setDoc(subRef, {
-        assignmentId,
-        studentId: profile.uid,
-        status: "pending",
-        revisionCompleted: [itemId]
-      });
+    try {
+      const subSnap = await getDoc(subRef);
+      
+      if (subSnap.exists()) {
+        const data = subSnap.data() as Submission;
+        const current = data.revisionCompleted || [];
+        const updated = current.includes(itemId) 
+          ? current.filter(id => id !== itemId)
+          : [...current, itemId];
+        
+        const updates: any = { revisionCompleted: updated };
+        // If no status or explicitly unstarted, mark as pending
+        if (!data.status || data.status === 'not_started' as any) updates.status = "pending";
+        
+        await updateDoc(subRef, updates);
+      } else {
+        await setDoc(subRef, {
+          assignmentId,
+          studentId: profile.uid,
+          status: "pending",
+          revisionCompleted: [itemId]
+        });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `submissions/${subId}`);
     }
   };
 
@@ -97,25 +235,46 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   const handleCompleteAssignment = async (assignment: Assignment) => {
     const submissionId = `${profile.uid}_${assignment.id}`;
     const subRef = doc(db, "submissions", submissionId);
-    const subSnap = await getDoc(subRef);
+    try {
+      const subSnap = await getDoc(subRef);
+      const onTime = new Date() <= new Date(assignment.dueDate);
+      const basePoints = onTime ? (assignment.pointsValue || 10) : 5;
 
-    const onTime = new Date() <= new Date(assignment.dueDate);
-    const basePoints = onTime ? (assignment.pointsValue || 10) : 5;
+      const batch = writeBatch(db);
 
-    if (!subSnap.exists()) {
-      await setDoc(subRef, {
-        assignmentId: assignment.id,
-        studentId: profile.uid,
-        status: "submitted",
-        submittedAt: new Date().toISOString(),
-        pointsAwarded: basePoints, // Base points for submitting
-      } as Submission);
-      
-      // Update user points with base points
-      const userRef = doc(db, "users", profile.uid);
-      await updateDoc(userRef, {
-        points: (profile.points || 0) + basePoints
-      });
+      if (!subSnap.exists()) {
+        batch.set(subRef, {
+          assignmentId: assignment.id,
+          studentId: profile.uid,
+          status: "submitted",
+          submittedAt: serverTimestamp(),
+          pointsAwarded: basePoints,
+        });
+        
+        batch.update(doc(db, "users", profile.uid), {
+          points: increment(basePoints)
+        });
+        
+        await batch.commit();
+      } else {
+        const existingData = subSnap.data() as Submission;
+        if (existingData.status === 'pending' || !existingData.status || existingData.status === 'late' || (existingData as any).status === 'not_started') {
+          batch.update(subRef, {
+            status: "submitted",
+            submittedAt: serverTimestamp(),
+            pointsAwarded: basePoints
+          });
+
+          batch.update(doc(db, "users", profile.uid), {
+            points: increment(basePoints)
+          });
+          
+          await batch.commit();
+        }
+      }
+    } catch (error) {
+      console.error("Completion error details:", error);
+      handleFirestoreError(error, OperationType.WRITE, `submissions/${submissionId}`);
     }
   };
 
@@ -155,6 +314,16 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
           <MessageSquare size={18} />
           Teacher Inbox
         </button>
+        <button 
+          onClick={() => setActiveTab('profile')}
+          className={cn(
+             "flex items-center gap-2 text-sm font-bold transition-colors",
+             activeTab === 'profile' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+          )}
+        >
+          <UserIcon size={18} />
+          My Profile
+        </button>
       </div>
 
       <AnimatePresence mode="wait">
@@ -183,56 +352,109 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                   </div>
                </div>
                
-               <div className="space-y-4">
-                  {filteredAssignments.length === 0 ? (
-                    <p className="text-center py-10 text-gray-400 italic">No assignments found. Enjoy your free time!</p>
-                  ) : (
-                    filteredAssignments.map(assignment => {
-                      const submission = getSubmissionStatus(assignment.id);
-                      const isSubmitted = submission?.status === 'submitted' || submission?.status === 'completed';
-                      const isCompleted = submission?.status === 'completed';
-                      
-                      return (
-                        <motion.div 
-                          key={assignment.id} 
-                          layout
-                          onClick={() => setSelectedAssignment(assignment)}
-                          className={cn(
-                            "flex items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer",
-                            isSubmitted ? "bg-gray-50 border-gray-100 opacity-60" : "bg-white border-gray-100 hover:border-indigo-200"
-                          )}
-                        >
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); !isSubmitted && handleCompleteAssignment(assignment); }}
-                            className={cn(
-                              "w-6 h-6 rounded-full flex items-center justify-center transition-colors",
-                              isSubmitted ? (isCompleted ? "bg-green-100 text-green-600" : "bg-indigo-100 text-indigo-600") : "border-2 border-gray-200 text-transparent hover:border-indigo-400 hover:text-indigo-400"
-                            )}
-                          >
-                            {isCompleted ? <CheckCircle2 size={16} /> : <div className="w-2 h-2 bg-current rounded-full" />}
-                          </button>
-                          <div className="flex-1">
-                            <h4 className={cn("font-bold text-gray-900", isSubmitted && "text-gray-500")}>{assignment.title}</h4>
-                            <div className="flex items-center gap-3 mt-1">
-                              <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-md font-bold uppercase">{assignment.subject}</span>
-                              <div className="flex items-center gap-1 text-xs text-gray-400">
-                                 <Clock size={12} />
-                                 <span>Due: {formatDate(assignment.dueDate)}</span>
+               <div className="space-y-8">
+                  {/* In Progress Section */}
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">In Progress</h4>
+                    <div className="space-y-4">
+                      {filteredAssignments.filter(a => {
+                        const sub = getSubmissionStatus(a.id);
+                        return !sub || (sub.status !== 'submitted' && sub.status !== 'completed');
+                      }).length === 0 ? (
+                        <p className="text-sm text-gray-400 italic">No pending assignments.</p>
+                      ) : (
+                        filteredAssignments.filter(a => {
+                          const sub = getSubmissionStatus(a.id);
+                          return !sub || (sub.status !== 'submitted' && sub.status !== 'completed');
+                        }).map(assignment => {
+                          const submission = getSubmissionStatus(assignment.id);
+                          const isSubmitted = submission?.status === 'submitted' || submission?.status === 'completed';
+                          
+                          return (
+                            <motion.div 
+                              key={assignment.id} 
+                              layout
+                              onClick={() => setSelectedAssignment(assignment)}
+                              className="flex items-center gap-4 p-4 rounded-2xl border bg-white border-gray-100 hover:border-indigo-200 transition-all cursor-pointer shadow-sm"
+                            >
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); !isSubmitted && handleCompleteAssignment(assignment); }}
+                                className="w-6 h-6 rounded-full border-2 border-gray-200 text-transparent hover:border-indigo-400 hover:text-indigo-400 flex items-center justify-center transition-colors"
+                              >
+                                <div className="w-2 h-2 bg-current rounded-full" />
+                              </button>
+                              <div className="flex-1">
+                                <h4 className="font-bold text-gray-900">{assignment.title}</h4>
+                                <div className="flex items-center gap-3 mt-1">
+                                  <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-md font-bold uppercase">{assignment.subject}</span>
+                                  <div className="flex items-center gap-1 text-xs text-gray-400">
+                                     <Clock size={12} />
+                                     <span>Due: {formatDate(assignment.dueDate)}</span>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          </div>
-                          <div className="text-right flex flex-col items-end">
-                             <span className={cn(
-                               "text-xs font-bold px-2 py-1 rounded-lg",
-                               isCompleted ? "bg-green-100 text-green-700" : isSubmitted ? "bg-indigo-100 text-indigo-700" : "bg-amber-100 text-amber-700"
-                             )}>
-                               {isCompleted ? `Approved: +${submission?.pointsAwarded || 0} pts` : isSubmitted ? "Review pending" : `${assignment.pointsValue || 10} pts`}
-                             </span>
-                          </div>
-                        </motion.div>
-                      );
-                    })
-                  )}
+                              <div className="text-right">
+                                 <span className="text-xs font-bold px-2 py-1 rounded-lg bg-amber-100 text-amber-700">
+                                   {assignment.pointsValue || 10} pts
+                                 </span>
+                              </div>
+                            </motion.div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Completed Section */}
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Completed</h4>
+                    <div className="space-y-4">
+                      {filteredAssignments.filter(a => {
+                        const sub = getSubmissionStatus(a.id);
+                        return sub?.status === 'submitted' || sub?.status === 'completed';
+                      }).length === 0 ? (
+                        <p className="text-sm text-gray-400 italic">No completed assignments yet.</p>
+                      ) : (
+                        filteredAssignments.filter(a => {
+                          const sub = getSubmissionStatus(a.id);
+                          return sub?.status === 'submitted' || sub?.status === 'completed';
+                        }).map(assignment => {
+                          const submission = getSubmissionStatus(assignment.id);
+                          const isCompleted = submission?.status === 'completed';
+                          
+                          return (
+                            <motion.div 
+                              key={assignment.id} 
+                              layout
+                              onClick={() => setSelectedAssignment(assignment)}
+                              className="flex items-center gap-4 p-4 rounded-2xl border bg-gray-50 border-gray-100 opacity-80 cursor-pointer shadow-sm"
+                            >
+                              <div className={cn(
+                                "w-6 h-6 rounded-full flex items-center justify-center",
+                                isCompleted ? "bg-green-100 text-green-600" : "bg-indigo-100 text-indigo-600"
+                              )}>
+                                {isCompleted ? <CheckCircle2 size={16} /> : <div className="w-2 h-2 bg-current rounded-full" />}
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="font-bold text-gray-500">{assignment.title}</h4>
+                                <div className="flex items-center gap-3 mt-1">
+                                  <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-md font-bold">{assignment.subject}</span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                 <span className={cn(
+                                   "text-xs font-bold px-2 py-1 rounded-lg",
+                                   isCompleted ? "bg-green-100 text-green-700" : "bg-indigo-100 text-indigo-700"
+                                 )}>
+                                   {isCompleted ? `Earned: +${submission?.pointsAwarded || 0} pts` : "Submitted"}
+                                 </span>
+                              </div>
+                            </motion.div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                </div>
             </div>
 
@@ -273,6 +495,16 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
               </div>
             </div>
           </motion.div>
+        ) : activeTab === 'profile' ? (
+          <motion.div
+            key="profile"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="lg:col-span-2"
+          >
+            <StudentProfileEditor profile={profile} />
+          </motion.div>
         ) : (
           <motion.div 
             key="messages"
@@ -292,12 +524,14 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                     className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-indigo-100 transition-all"
                   >
                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                           {teacher.name.slice(0, 2).toUpperCase()}
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all text-2xl border border-indigo-100">
+                           {teacher.avatar || teacher.name.slice(0, 1).toUpperCase()}
                         </div>
                         <div>
                            <p className="font-bold text-gray-900">{teacher.name}</p>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Faculty • Assigned Teacher</p>
+                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest truncate max-w-[150px]">
+                              {teacher.subjects?.join(", ") || "Faculty"} • Assigned Teacher
+                           </p>
                         </div>
                      </div>
                      <button 
@@ -322,7 +556,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
            <div className="flex items-center gap-2 mb-6">
               <Trophy className="text-amber-500" size={24} />
-              <h3 className="text-xl font-bold text-gray-900">Leaderboard</h3>
+              <h3 className="text-xl font-bold text-gray-900">Hall of Fame</h3>
            </div>
            <div className="space-y-4">
               {leaderboard.map((user, idx) => (
@@ -332,8 +566,17 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                       "w-6 text-sm font-bold",
                       idx === 0 ? "text-amber-500" : idx === 1 ? "text-gray-400" : "text-gray-300"
                     )}>{idx + 1}</span>
+                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-sm border border-gray-100 relative">
+                       {user.avatar || user.name.slice(0, 1).toUpperCase()}
+                       {user.role === 'teacher' && (
+                         <div className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-600 rounded-full border-2 border-white" title="Teacher" />
+                       )}
+                    </div>
                     <div>
-                      <p className="font-bold text-sm text-gray-900">{user.name}</p>
+                      <div className="flex items-center gap-2 text-sm">
+                        <p className="font-bold text-gray-900">{user.name}</p>
+                        {user.role === 'teacher' && <span className="text-[8px] bg-indigo-50 text-indigo-600 px-1 rounded font-black uppercase">Staff</span>}
+                      </div>
                       <p className="text-xs text-gray-500">{user.points || 0} pts</p>
                     </div>
                   </div>
@@ -351,9 +594,9 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
            </div>
            <div className="space-y-4">
               {classStandings.map((cls, idx) => (
-                <div key={cls.name} className={cn(
+                <div key={cls.id} className={cn(
                    "flex items-center justify-between p-3 rounded-2xl",
-                   cls.name === leaderboard.find(u => u.uid === profile.uid)?.classId ? "bg-indigo-50" : ""
+                   cls.id === profile.classId ? "bg-indigo-50" : ""
                 )}>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-mono text-gray-400">{idx + 1}.</span>
@@ -397,15 +640,58 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                   <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{selectedAssignment.subject}</span>
                   <h3 className="text-2xl font-bold text-gray-900 mt-1">{selectedAssignment.title}</h3>
                 </div>
-                <button onClick={() => setSelectedAssignment(null)} className="text-gray-400 hover:text-gray-600 p-2">
-                   <Filter className="rotate-45" size={24} />
-                </button>
+                <div className="flex items-center gap-3">
+                   {selectedAssignment.difficulty && (
+                     <span className={cn(
+                       "text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest",
+                       selectedAssignment.difficulty === 'Easy' ? "bg-green-100 text-green-700" :
+                       selectedAssignment.difficulty === 'Medium' ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                     )}>
+                       {selectedAssignment.difficulty}
+                     </span>
+                   )}
+                   <button onClick={() => setSelectedAssignment(null)} className="text-gray-400 hover:text-gray-600 p-2">
+                      <Filter className="rotate-45" size={24} />
+                   </button>
+                </div>
               </div>
               
               <div className="space-y-6">
-                <div>
-                  <p className="text-sm font-bold text-gray-400 uppercase mb-2">Description</p>
-                  <p className="text-gray-600 leading-relaxed">{selectedAssignment.description}</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-gray-400 uppercase mb-2">Description</p>
+                    <p className="text-gray-600 leading-relaxed text-sm">{selectedAssignment.description}</p>
+                  </div>
+                  <div className="space-y-4">
+                    {selectedAssignment.estimatedTime && (
+                      <div>
+                        <p className="text-sm font-bold text-gray-400 uppercase mb-1">Estimated Time</p>
+                        <div className="flex items-center gap-2 text-indigo-600 font-bold">
+                          <Clock size={16} />
+                          <span>{selectedAssignment.estimatedTime}</span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedAssignment.attachments && selectedAssignment.attachments.length > 0 && (
+                      <div>
+                        <p className="text-sm font-bold text-gray-400 uppercase mb-2">Reference Materials</p>
+                        <div className="space-y-2">
+                           {selectedAssignment.attachments.map((file, i) => (
+                             <a 
+                               key={i} 
+                               href={file.url} 
+                               target="_blank" 
+                               rel="noreferrer"
+                               className="flex items-center gap-2 p-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-600 hover:text-white transition-all"
+                             >
+                               <School size={14} />
+                               <span className="truncate">{file.name}</span>
+                             </a>
+                           ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -442,17 +728,30 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                         {selectedAssignment.pointsValue} Points
                       </div>
                    </div>
-                   {!getSubmissionStatus(selectedAssignment.id)?.status?.includes('completed') && (
-                     <button 
-                        onClick={() => {
-                          handleCompleteAssignment(selectedAssignment);
-                          setSelectedAssignment(null);
+                    {!getSubmissionStatus(selectedAssignment.id)?.status || getSubmissionStatus(selectedAssignment.id)?.status === 'pending' ? (
+                      <button 
+                        disabled={isCompleting}
+                        onClick={async () => {
+                          setIsCompleting(true);
+                          try {
+                            await handleCompleteAssignment(selectedAssignment);
+                            setSelectedAssignment(null);
+                          } catch (error) {
+                            console.error("Completion error:", error);
+                          } finally {
+                            setIsCompleting(false);
+                          }
                         }}
-                        className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200"
-                     >
-                       Mark as Complete
-                     </button>
-                   )}
+                        className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50"
+                      >
+                        {isCompleting ? 'Marking...' : 'Mark as Completed'}
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2 text-indigo-600 font-bold bg-indigo-50 px-4 py-2 rounded-xl">
+                        <CheckCircle2 size={18} />
+                        {getSubmissionStatus(selectedAssignment.id)?.status === 'completed' ? 'Graded & Completed' : 'Submitted for Review'}
+                      </div>
+                    )}
                 </div>
               </div>
             </div>

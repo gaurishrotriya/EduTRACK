@@ -56,6 +56,16 @@ export default function ChatWindow({ currentUser, otherUser, onClose }: ChatProp
         participants: [currentUser.uid, otherUser.uid],
         createdAt: serverTimestamp()
       });
+
+      // Create notification for receiver
+      await addDoc(collection(db, "notifications"), {
+        userId: otherUser.uid,
+        message: `New message from ${currentUser.name}: ${text.slice(0, 50)}${text.length > 50 ? '...' : ''}`,
+        read: false,
+        createdAt: new Date().toISOString(),
+        type: 'message',
+        senderId: currentUser.uid
+      });
     } catch (err) {
       console.error("Failed to send message", err);
     }

@@ -17,31 +17,55 @@ export default function App() {
   const [pendingSelection, setPendingSelection] = useState<{ role: UserRole | null, classId?: string }>({ role: null });
 
   useEffect(() => {
-    // Fetch all classes for selection
-    const unsubClasses = onSnapshot(collection(db, "classes"), (snap) => {
-      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)));
-    });
-
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
       if (firebaseUser) {
         setUser(firebaseUser);
         const docRef = doc(db, "users", firebaseUser.uid);
-        const docSnap = await getDoc(docRef);
         
-        if (docSnap.exists()) {
-          setProfile(docSnap.data() as UserProfile);
-        } else {
-          setPendingSelection({ role: null });
-        }
+        // Use onSnapshot for real-time profile updates
+        const unsubProfile = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setProfile(docSnap.data() as UserProfile);
+          } else {
+            setPendingSelection({ role: null });
+            setProfile(null);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Profile listener error:", error);
+          setLoading(false);
+        });
+
+        return () => {
+          unsubscribe();
+          unsubProfile();
+        };
       } else {
         setUser(null);
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => { unsubscribe(); unsubClasses(); };
+    return () => { unsubscribe(); };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setClasses([]);
+      return;
+    }
+
+    // Fetch classes ONLY when we have a user (to satisfy security rules)
+    const unsubClasses = onSnapshot(collection(db, "classes"), (snap) => {
+      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)));
+    }, (error) => {
+      console.error("Error fetching classes:", error);
+    });
+
+    return () => unsubClasses();
+  }, [user]);
 
   const handleFinalizeOnboarding = async (role: UserRole, classId?: string) => {
     if (!user) return;

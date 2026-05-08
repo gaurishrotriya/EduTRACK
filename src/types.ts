@@ -8,6 +8,9 @@ export interface UserProfile {
   points?: number;
   classId?: string;
   createdAt: string;
+  age?: number;
+  avatar?: string;
+  subjects?: string[];
 }
 
 export interface Class {
@@ -28,6 +31,9 @@ export interface Assignment {
   teacherId: string;
   categoryId?: string;
   pointsValue: number;
+  difficulty?: "Easy" | "Medium" | "Hard";
+  estimatedTime?: string;
+  attachments?: { name: string; url: string; type: string }[];
 }
 
 export interface Category {

@@ -11,6 +11,9 @@
         "role": { "type": "string", "enum": ["teacher", "student"] },
         "classId": { "type": "string" },
         "points": { "type": "number" },
+        "age": { "type": "number" },
+        "avatar": { "type": "string" },
+        "subjects": { "type": "array", "items": { "type": "string" } },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role"]
@@ -41,7 +44,20 @@
         "teacherId": { "type": "string" },
         "categoryId": { "type": "string" },
         "pointsValue": { "type": "number" },
-        "status": { "type": "string", "enum": ["active", "archived"] }
+        "status": { "type": "string", "enum": ["active", "archived"] },
+        "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"] },
+        "estimatedTime": { "type": "string" },
+        "attachments": { 
+          "type": "array", 
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "url": { "type": "string" },
+              "type": { "type": "string" }
+            }
+          }
+        }
       },
       "required": ["title", "subject", "dueDate", "teacherId", "classId"]
     },

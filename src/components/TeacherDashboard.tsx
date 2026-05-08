@@ -1,24 +1,84 @@
 import React, { useState, useEffect } from "react";
 import { UserProfile, Assignment, Category, Submission, Class } from "../types";
 import { db } from "../firebase";
-import { collection, onSnapshot, query, where, addDoc, getDocs, doc, deleteDoc, updateDoc, getDoc } from "firebase/firestore";
-import { Plus, BookOpen, Calendar, CheckSquare, Trash2, Edit2, Star, Award, Users, Search, MessageSquare, ChevronRight, LayoutDashboard } from "lucide-react";
+import { collection, onSnapshot, query, where, addDoc, getDocs, doc, deleteDoc, updateDoc, getDoc, increment, writeBatch } from "firebase/firestore";
+import { Plus, BookOpen, Calendar, CheckSquare, Trash2, Edit2, Star, Award, Users, Search, MessageSquare, ChevronRight, LayoutDashboard, Trophy } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, formatDate } from "../lib/utils";
 import StudentProfileView from "./StudentProfileView";
 import ChatWindow from "./ChatWindow";
+import { User as UserIcon, Save } from "lucide-react";
+
+function TeacherProfileEditor({ profile }: { profile: UserProfile }) {
+  const [name, setName] = useState(profile.name);
+  const [subjects, setSubjects] = useState(profile.subjects?.join(", ") || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "users", profile.uid), {
+        name,
+        subjects: subjects.split(",").map(s => s.trim()).filter(s => s)
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+      <h3 className="text-2xl font-bold text-gray-900 mb-8">Profile Settings</h3>
+      <form onSubmit={handleSave} className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-1">
+            <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Full Name</label>
+            <input 
+              type="text" value={name} 
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Subjects (Comma separated)</label>
+            <input 
+              type="text" value={subjects} 
+              onChange={(e) => setSubjects(e.target.value)}
+              placeholder="e.g. Maths, Physics"
+              className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+            />
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-gray-50 flex justify-end">
+           <button 
+             type="submit" 
+             disabled={saving}
+             className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 disabled:opacity-50"
+           >
+             <Save size={20} />
+             {saving ? 'Saving...' : 'Save Profile'}
+           </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 interface TeacherDashboardProps {
   profile: UserProfile;
 }
 
 export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'assignments' | 'students'>('assignments');
+  const [activeTab, setActiveTab] = useState<'assignments' | 'students' | 'classes' | 'profile' | 'leaderboard'>('assignments');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [leaderboard, setLeaderboard] = useState<UserProfile[]>([]);
+  const [classStandings, setClassStandings] = useState<{id: string, name: string, points: number}[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [viewingAssignmentId, setViewingAssignmentId] = useState<string | null>(null);
@@ -36,6 +96,11 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
   const [classId, setClassId] = useState(""); // Targeted class
   const [description, setDescription] = useState("");
   const [revisionItemsInput, setRevisionItemsInput] = useState("");
+  const [difficulty, setDifficulty] = useState<"Easy" | "Medium" | "Hard">("Medium");
+  const [estimatedTime, setEstimatedTime] = useState("");
+  const [attachments, setAttachments] = useState<{ name: string, url: string, type: string }[]>([]);
+  const [attachmentName, setAttachmentName] = useState("");
+  const [attachmentUrl, setAttachmentUrl] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newClassName, setNewClassName] = useState("");
   const [showCategoryForm, setShowCategoryForm] = useState(false);
@@ -68,7 +133,25 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
       setStudents(snapshot.docs.map(doc => doc.data() as UserProfile));
     });
 
-    return () => { unsub(); cUnsub(); sUnsub(); clsUnsub(); uUnsub(); };
+    const unsubL = onSnapshot(collection(db, "users"), (snap) => {
+      const allUsers = snap.docs.map(d => d.data() as UserProfile);
+      setLeaderboard(allUsers.sort((a, b) => (b.points || 0) - (a.points || 0)));
+
+      const studentUsers = allUsers.filter(u => u.role === 'student');
+      
+      const unsubClasses = onSnapshot(collection(db, "classes"), (cSnap) => {
+         const classesData = cSnap.docs.map(d => ({id: d.id, ...d.data()} as Class));
+         const standings = classesData.map(c => {
+            const classUsers = studentUsers.filter(u => u.classId === c.id);
+            const userPoints = classUsers.reduce((sum, u) => sum + (u.points || 0), 0);
+            return { id: c.id, name: c.name, points: userPoints };
+         }).sort((a,b) => b.points - a.points);
+         setClassStandings(standings);
+      });
+      return () => unsubClasses();
+    });
+
+    return () => { unsub(); cUnsub(); sUnsub(); clsUnsub(); uUnsub(); unsubL(); };
   }, [profile.uid]);
 
   const handleCreateCategory = async (e: React.FormEvent) => {
@@ -97,21 +180,16 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
 
   const handleAdjustPoints = async (studentId: string, amount: number, reason: string) => {
     const userRef = doc(db, "users", studentId);
-    const userSnap = await getDoc(userRef);
-    if (userSnap.exists()) {
-      const current = userSnap.data().points || 0;
-      const newPoints = current + amount;
-      await updateDoc(userRef, { points: newPoints });
+    await updateDoc(userRef, { points: increment(amount) });
 
-      // Create notification for student
-      await addDoc(collection(db, "notifications"), {
-        userId: studentId,
-        message: `${amount > 0 ? 'Awarded' : 'Demerit'}: ${amount} points for ${reason}`,
-        read: false,
-        createdAt: new Date().toISOString(),
-        type: 'points'
-      });
-    }
+    // Create notification for student
+    await addDoc(collection(db, "notifications"), {
+      userId: studentId,
+      message: `${amount > 0 ? 'Awarded' : 'Demerit'}: ${amount} points for ${reason}`,
+      read: false,
+      createdAt: new Date().toISOString(),
+      type: 'points'
+    });
   };
 
   const handleCreateAssignment = async (e: React.FormEvent) => {
@@ -128,6 +206,9 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
       description,
       categoryId,
       classId,
+      difficulty,
+      estimatedTime,
+      attachments,
       teacherId: profile.uid,
       createdAt: new Date().toISOString(),
       pointsValue: 10,
@@ -146,11 +227,40 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
     }
 
     setTitle(""); setSubject(""); setDueDate(""); setCategoryId(""); setClassId(""); setDescription(""); setRevisionItemsInput("");
+    setDifficulty("Medium"); setEstimatedTime(""); setAttachments([]);
     setShowForm(false);
+  };
+
+  const addAttachment = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!attachmentName || !attachmentUrl) return;
+    setAttachments([...attachments, { name: attachmentName, url: attachmentUrl, type: "file" }]);
+    setAttachmentName("");
+    setAttachmentUrl("");
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(attachments.filter((_, i) => i !== index));
   };
 
   const handleDeleteAssignment = async (id: string) => {
     await deleteDoc(doc(db, "assignments", id));
+  };
+
+  const handleDeleteClass = async (id: string) => {
+     // Check if students are in this class first? Or just allow delete.
+     // In a real app we'd check. Here we'll just delete.
+     await deleteDoc(doc(db, "classes", id));
+  };
+
+  const handleUpdateStudentClass = async (studentId: string, newClassId: string) => {
+     const userRef = doc(db, "users", studentId);
+     await updateDoc(userRef, { classId: newClassId });
+     
+     // Update local state if needed (onSnapshot usually handles it)
+     if (selectedStudent && selectedStudent.uid === studentId) {
+        setSelectedStudent({ ...selectedStudent, classId: newClassId });
+     }
   };
 
   const getSubmissionsForAssignment = (assignmentId: string) => {
@@ -158,16 +268,14 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
   };
 
   const handleGradeSubmission = async (submissionId: string, studentId: string, points: number) => {
+    const batch = writeBatch(db);
     const subRef = doc(db, "submissions", submissionId);
-    await updateDoc(subRef, { status: "completed" });
+    batch.update(subRef, { status: "completed" });
     
-    // Also update student profile points (in a real app, use a cloud function or transaction)
     const userRef = doc(db, "users", studentId);
-    const userSnap = await getDoc(userRef);
-    if (userSnap.exists()) {
-      const currentPoints = userSnap.data().points || 0;
-      await updateDoc(userRef, { points: currentPoints + points });
-    }
+    batch.update(userRef, { points: increment(points) });
+    
+    await batch.commit();
   };
 
   return (
@@ -194,6 +302,36 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
           <Users size={18} />
           Students
         </button>
+        <button 
+          onClick={() => setActiveTab('classes')}
+          className={cn(
+             "flex items-center gap-2 text-sm font-bold transition-colors",
+             activeTab === 'classes' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+          )}
+        >
+          <Star size={18} />
+          Classes
+        </button>
+        <button 
+          onClick={() => setActiveTab('leaderboard')}
+          className={cn(
+             "flex items-center gap-2 text-sm font-bold transition-colors",
+             activeTab === 'leaderboard' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+          )}
+        >
+          <Trophy size={18} />
+          Hall of Fame
+        </button>
+        <button 
+          onClick={() => setActiveTab('profile')}
+          className={cn(
+             "flex items-center gap-2 text-sm font-bold transition-colors",
+             activeTab === 'profile' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+          )}
+        >
+          <UserIcon size={18} />
+          Profile
+        </button>
       </div>
 
       <AnimatePresence mode="wait">
@@ -207,9 +345,99 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
             <StudentProfileView 
               student={selectedStudent} 
               classData={classes.find(c => c.id === selectedStudent.classId)}
+              classList={classes}
               onClose={() => setSelectedStudent(null)}
               onMessage={(s) => setMessagingUser(s)}
+              onUpdateClass={handleUpdateStudentClass}
             />
+          </motion.div>
+        ) : activeTab === 'leaderboard' ? (
+          <motion.div
+            key="leaderboard"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="space-y-8"
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Individual Rankings */}
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <div className="flex items-center gap-2 mb-6">
+                  <Trophy className="text-amber-500" size={24} />
+                  <h3 className="text-xl font-bold text-gray-900">Hall of Fame</h3>
+                </div>
+                <div className="space-y-4">
+                  {leaderboard.slice(0, 10).map((user, idx) => (
+                    <div key={user.uid} className="flex items-center justify-between p-3 rounded-2xl hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <span className={cn(
+                          "w-6 text-sm font-bold",
+                          idx === 0 ? "text-amber-500" : idx === 1 ? "text-gray-400" : "text-gray-300"
+                        )}>{idx + 1}</span>
+                        <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-lg border border-gray-100 relative">
+                          {user.avatar || user.name.slice(0, 1).toUpperCase()}
+                          {user.role === 'teacher' && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-600 rounded-full border-2 border-white" title="Teacher" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-sm text-gray-900">{user.name}</p>
+                            {user.role === 'teacher' && <span className="text-[8px] bg-indigo-50 text-indigo-600 px-1 rounded font-black uppercase">Staff</span>}
+                          </div>
+                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{user.role}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-black text-gray-900">{user.points || 0}</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">BP</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Class Standings */}
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <div className="flex items-center gap-2 mb-6">
+                  <Star className="text-indigo-500" size={24} />
+                  <h3 className="text-xl font-bold text-gray-900">House Standings</h3>
+                </div>
+                <div className="space-y-4">
+                  {classStandings.map((cls, idx) => (
+                    <div key={cls.id} className="flex items-center justify-between p-4 rounded-2xl border border-gray-50">
+                      <div className="flex items-center gap-4">
+                        <span className="text-lg font-black text-gray-200">#0{idx + 1}</span>
+                        <div>
+                          <h4 className="font-bold text-gray-900">Class {cls.name}</h4>
+                          <div className="h-1.5 w-32 bg-gray-100 rounded-full mt-2 overflow-hidden">
+                             <motion.div 
+                               initial={{ width: 0 }}
+                               animate={{ width: `${(cls.points / (classStandings[0]?.points || 1)) * 100}%` }}
+                               className="h-full bg-indigo-500"
+                             />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-black text-indigo-600">{cls.points}</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">Total BP</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ) : activeTab === 'profile' ? (
+          <motion.div
+            key="profile"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="space-y-6"
+          >
+            <TeacherProfileEditor profile={profile} />
           </motion.div>
         ) : activeTab === 'students' ? (
           <motion.div
@@ -248,8 +476,8 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                         className="flex items-center gap-4 cursor-pointer flex-1"
                         onClick={() => setSelectedStudent(student)}
                       >
-                         <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                            {student.name.slice(0, 2).toUpperCase()}
+                         <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors text-2xl border border-indigo-100">
+                            {student.avatar || student.name.slice(0, 2).toUpperCase()}
                          </div>
                          <div>
                             <p className="font-bold text-gray-900">{student.name}</p>
@@ -272,6 +500,82 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                })}
             </div>
           </motion.div>
+        ) : activeTab === 'classes' ? (
+          <motion.div
+            key="classes"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center justify-between">
+               <h3 className="text-xl font-bold text-gray-900">Manage Classes</h3>
+               <button 
+                  onClick={() => setShowClassForm(!showClassForm)}
+                  className="bg-green-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-green-700 transition-colors"
+               >
+                 <Plus size={20} />
+                 New Class
+               </button>
+            </div>
+
+            {showClassForm && (
+              <motion.form 
+                initial={{ opacity: 0, height: 0 }} 
+                animate={{ opacity: 1, height: "auto" }}
+                onSubmit={handleCreateClass}
+                className="bg-white p-6 rounded-3xl border border-green-100 shadow-sm flex flex-col gap-4"
+              >
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Class Name</label>
+                  <input 
+                    type="text" value={newClassName}
+                    onChange={(e) => setNewClassName(e.target.value)}
+                    placeholder="e.g. Year 10 Computing"
+                    className="w-full bg-gray-50 px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-green-300"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                   <button type="button" onClick={() => setShowClassForm(false)} className="px-4 py-2 text-sm text-gray-500 font-bold">Cancel</button>
+                   <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-xl text-sm font-bold">Create Class</button>
+                </div>
+              </motion.form>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {classes.map(cls => (
+                <div key={cls.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div className="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center text-green-600">
+                      <Star size={24} />
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteClass(cls.id)}
+                      className="text-gray-300 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                  <div>
+                    <h4 className="text-xl font-bold text-gray-900">Class {cls.name}</h4>
+                    <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">
+                      {students.filter(s => s.classId === cls.id).length} Students Enrolled
+                    </p>
+                  </div>
+                  <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
+                     <div className="text-xs font-bold text-gray-400 uppercase">Class Points</div>
+                     <div className="text-lg font-black text-green-600">{cls.totalPoints || 0}</div>
+                  </div>
+                </div>
+              ))}
+              
+              {classes.length === 0 && (
+                 <div className="col-span-full py-12 text-center bg-gray-50 rounded-3xl border border-dashed border-gray-200">
+                    <p className="text-gray-400">No classes created yet. Create one to start assigning students!</p>
+                 </div>
+              )}
+            </div>
+          </motion.div>
         ) : (
           <motion.div
             key="assignments"
@@ -281,7 +585,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
             className="space-y-8"
           >
             {/* Stats row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <StatCard 
                 icon={<BookOpen className="text-indigo-600" />} 
                 title="Active Assignments" 
@@ -299,6 +603,12 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                 title="Submissions Reviewed" 
                 value={submissions.filter(s => s.status === 'completed').length} 
                 color="bg-green-50"
+              />
+              <StatCard 
+                icon={<CheckSquare className="text-amber-600" />} 
+                title="In Progress" 
+                value={submissions.filter(s => s.status === 'pending').length} 
+                color="bg-amber-50"
               />
             </div>
 
@@ -438,6 +748,28 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                       {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Difficulty</label>
+                    <select 
+                      value={difficulty}
+                      onChange={(e) => setDifficulty(e.target.value as any)}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Estimated Time (e.g. 45m)</label>
+                    <input 
+                      type="text" 
+                      value={estimatedTime}
+                      onChange={(e) => setEstimatedTime(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="e.g. 1 hour, 30 mins"
+                    />
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Description</label>
@@ -448,6 +780,32 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                     placeholder="What should students do?"
                   />
                 </div>
+                
+                <div className="space-y-2">
+                   <label className="text-sm font-medium text-gray-700">Attachments (Optional)</label>
+                   <div className="flex gap-2">
+                      <input 
+                        type="text" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)}
+                        placeholder="Link Name" className="flex-1 px-3 py-1 text-sm border border-gray-200 rounded-lg outline-none"
+                      />
+                      <input 
+                        type="text" value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)}
+                        placeholder="URL (http...)" className="flex-1 px-3 py-1 text-sm border border-gray-200 rounded-lg outline-none"
+                      />
+                      <button onClick={addAttachment} className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-all">Add</button>
+                   </div>
+                   {attachments.length > 0 && (
+                     <div className="flex flex-wrap gap-2 mt-2">
+                        {attachments.map((a, i) => (
+                          <div key={i} className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg text-[10px] font-bold">
+                             <span className="truncate max-w-[100px]">{a.name}</span>
+                             <button onClick={(e) => { e.preventDefault(); removeAttachment(i); }} className="hover:text-red-500">×</button>
+                          </div>
+                        ))}
+                     </div>
+                   )}
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Revision Checklist (Comma separated)</label>
                   <input 
@@ -515,8 +873,16 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                                      {s.studentId.slice(0, 2).toUpperCase()}
                                   </div>
                                   <div>
-                                     <p className="text-xs font-bold text-gray-900">Student {s.studentId.slice(0, 4)}</p>
-                                     <p className="text-[10px] text-gray-500">{s.status}</p>
+                                     <p className="text-xs font-bold text-gray-900">
+                                       {students.find(student => student.uid === s.studentId)?.name || `Student ${s.studentId.slice(0, 4)}`}
+                                     </p>
+                                     <p className={cn(
+                                       "text-[10px] font-bold uppercase",
+                                       s.status === 'submitted' ? "text-indigo-600" : 
+                                       s.status === 'pending' ? "text-amber-600" : "text-green-600"
+                                     )}>
+                                       {s.status === 'pending' ? 'In Progress' : s.status}
+                                     </p>
                                   </div>
                                </div>
                                {s.status === 'submitted' && (
