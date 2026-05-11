@@ -162,7 +162,15 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
 
     // Real-time listeners
     const unsubN = onSnapshot(query(collection(db, "notifications"), where("userId", "==", profile.uid)), (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const data = snap.docs.map(d => {
+        const dData = d.data() as any;
+        let createdAt = dData.createdAt;
+        // Handle firestore timestamp if present
+        if (createdAt && typeof createdAt === 'object' && 'toDate' in createdAt) {
+          createdAt = createdAt.toDate().toISOString();
+        }
+        return { id: d.id, ...dData, createdAt };
+      });
       setNotifications(data.sort((a: any, b: any) => {
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -297,12 +305,14 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
     if (!profile.uid) return;
     const submissionId = `${profile.uid}_${assignment.id}`;
     const subRef = doc(db, "submissions", submissionId);
+    
     try {
       const subSnap = await getDoc(subRef);
       const batch = writeBatch(db);
       
       const dueDate = new Date(assignment.dueDate);
-      const onTime = new Date() <= dueDate;
+      const now = new Date();
+      const onTime = now <= dueDate;
       const basePoints = onTime ? (assignment.pointsValue || 10) : 5;
 
       let shouldReward = false;
@@ -311,7 +321,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         batch.set(subRef, {
           assignmentId: assignment.id,
           studentId: profile.uid,
-          status: "submitted",
+          status: "completed",
           submittedAt: serverTimestamp(),
           pointsAwarded: basePoints,
           revisionCompleted: []
@@ -319,9 +329,10 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         shouldReward = true;
       } else {
         const existingData = subSnap.data() as Submission;
-        if (existingData.status !== 'submitted' && existingData.status !== 'completed') {
+        // Reward if not already completed or if status is pending/not_started
+        if (existingData.status !== 'completed') {
           batch.update(subRef, {
-            status: "submitted",
+            status: "completed",
             submittedAt: serverTimestamp(),
             pointsAwarded: basePoints
           });
@@ -337,7 +348,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         const notifRef = doc(collection(db, "notifications"));
         batch.set(notifRef, {
           userId: profile.uid,
-          message: `🥳 Great job ${profile.name}! You earned ${basePoints} BP for completing "${assignment.title}".`,
+          message: `🎉 AWESOME! You completed "${assignment.title}" and earned ${basePoints} Brain Points!`,
           read: false,
           createdAt: serverTimestamp(),
           type: 'achievement'
@@ -351,6 +362,9 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         
         setShowToast({ message: `Level Up! +${basePoints} BP`, points: basePoints });
         setTimeout(() => setShowToast(null), 5000);
+      } else {
+        // If already completed, just close modal
+        alert("You have already completed this assignment!");
       }
       
       setSelectedAssignment(null);
