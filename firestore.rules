@@ -39,7 +39,8 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidUser(incoming()) && isValidId(userId) && userId == request.auth.uid;
       allow update: if isSignedIn() && isValidId(userId) && (
         (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasAny(['name', 'points', 'age', 'classId', 'avatar', 'subjects', 'revisionCompleted']) && 
-         incoming().role == existing().role && incoming().uid == existing().uid) ||
+         (!incoming().keys().hasAny(['role']) || incoming().role == existing().role) && 
+         (!incoming().keys().hasAny(['uid']) || incoming().uid == existing().uid)) ||
         isTeacher()
       );
     }
@@ -61,11 +62,10 @@ service cloud.firestore {
       function isValidAssignment(data) {
         return data.keys().hasAll(['title', 'subject', 'dueDate', 'teacherId', 'classId']) &&
                data.title is string && data.title.size() <= 200 &&
-               data.subject is string &&
-               data.teacherId == request.auth.uid;
+               data.subject is string;
       }
       allow read: if isSignedIn();
-      allow create, update, delete: if isTeacher() && isValidId(assignmentId) && (request.method == 'create' ? isValidAssignment(incoming()) : true);
+      allow create, update, delete: if isTeacher() && isValidId(assignmentId);
     }
 
     // --- 4. Submissions ---
@@ -74,18 +74,15 @@ service cloud.firestore {
         return data.keys().hasAll(['assignmentId', 'studentId', 'status']) &&
                data.assignmentId is string &&
                data.studentId == request.auth.uid &&
-               data.status in ['not_started', 'pending', 'submitted', 'completed', 'late'] &&
-               (!data.keys().hasAll(['pointsAwarded']) || data.pointsAwarded is number) &&
-               (!data.keys().hasAll(['submittedAt']) || data.submittedAt == request.time || data.submittedAt is timestamp || data.submittedAt is string);
+               data.status in ['not_started', 'pending', 'submitted', 'completed', 'late'];
       }
       
-      allow read: if isSignedIn() && isValidId(submissionId) && (isTeacher() || isOwner(existing().studentId));
+      allow read: if isSignedIn() && (isTeacher() || isOwner(existing().studentId));
       allow create: if isStudent() && isValidId(submissionId) && isValidSubmission(incoming());
       allow update: if isSignedIn() && isValidId(submissionId) && (
         // Student Action: Update status/points or revision checklist
         (isOwner(existing().studentId) && 
-         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'submittedAt', 'pointsAwarded', 'revisionCompleted']) &&
-         isValidSubmission(incoming())) ||
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'submittedAt', 'pointsAwarded', 'revisionCompleted'])) ||
         // Teacher Action: Grade
         (isTeacher() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'pointsAwarded', 'feedback']))
       );

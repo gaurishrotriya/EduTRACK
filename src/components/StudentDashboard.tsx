@@ -148,6 +148,8 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   const [date, setDate] = useState(new Date());
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [lastPoints, setLastPoints] = useState(0);
   const [messagingTeacher, setMessagingTeacher] = useState<UserProfile | null>(null);
   const [revisionItems, setRevisionItems] = useState<RevisionItem[]>([]);
   
@@ -297,12 +299,14 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
     const subRef = doc(db, "submissions", submissionId);
     try {
       const subSnap = await getDoc(subRef);
-      const onTime = new Date() <= new Date(assignment.dueDate);
+      const batch = writeBatch(db);
+      
+      const dueDate = new Date(assignment.dueDate);
+      const onTime = new Date() <= dueDate;
       const basePoints = onTime ? (assignment.pointsValue || 10) : 5;
 
-      const batch = writeBatch(db);
-
-      // We'll create or update the submission and the user points in one batch
+      let shouldReward = false;
+      
       if (!subSnap.exists()) {
         batch.set(subRef, {
           assignmentId: assignment.id,
@@ -312,72 +316,47 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
           pointsAwarded: basePoints,
           revisionCompleted: []
         });
-        
-        batch.update(doc(db, "users", profile.uid), {
-          points: increment(basePoints)
-        });
-
-        // Add a notification for the student
-        const notifRef = doc(collection(db, "notifications"));
-        batch.set(notifRef, {
-          userId: profile.uid,
-          message: `😊 Good job ${profile.name}! You earned ${basePoints} points for completing "${assignment.title}".`,
-          read: false,
-          createdAt: serverTimestamp(),
-          type: 'achievement'
-        });
-        
-        await batch.commit();
+        shouldReward = true;
       } else {
         const existingData = subSnap.data() as Submission;
-        // Only reward points if transitioning from non-submitted/completed state
         if (existingData.status !== 'submitted' && existingData.status !== 'completed') {
           batch.update(subRef, {
             status: "submitted",
             submittedAt: serverTimestamp(),
             pointsAwarded: basePoints
           });
-
-          batch.update(doc(db, "users", profile.uid), {
-            points: increment(basePoints)
-          });
-          
-          // Add a notification for the student
-          const notifRef = doc(collection(db, "notifications"));
-          batch.set(notifRef, {
-            userId: profile.uid,
-            message: `😊 Good job ${profile.name}! You earned ${basePoints} points for completing "${assignment.title}".`,
-            read: false,
-            createdAt: serverTimestamp(),
-            type: 'achievement'
-          });
-          
-          await batch.commit();
+          shouldReward = true;
         }
       }
+
+      if (shouldReward) {
+        batch.update(doc(db, "users", profile.uid), {
+          points: increment(basePoints)
+        });
+
+        const notifRef = doc(collection(db, "notifications"));
+        batch.set(notifRef, {
+          userId: profile.uid,
+          message: `🥳 Great job ${profile.name}! You earned ${basePoints} BP for completing "${assignment.title}".`,
+          read: false,
+          createdAt: serverTimestamp(),
+          type: 'achievement'
+        });
+
+        await batch.commit();
+
+        setLastPoints(basePoints);
+        setShowCelebration(true);
+        setTimeout(() => setShowCelebration(false), 4000);
+        
+        setShowToast({ message: `Level Up! +${basePoints} BP`, points: basePoints });
+        setTimeout(() => setShowToast(null), 5000);
+      }
       
-      // Success feedback
-      setShowToast({ message: `Good job ${profile.name}!`, points: basePoints });
-      setTimeout(() => setShowToast(null), 5000);
       setSelectedAssignment(null);
     } catch (error: any) {
       console.error("Completion error details:", error);
-      let errorMsg = "Failed to mark as completed. Please check your connection.";
-      
-      try {
-        // Try to parse firestore error if it matches our expected JSON format or standard Error
-        const msg = error.message || String(error);
-        if (msg.includes('{')) {
-           const parsed = JSON.parse(msg.substring(msg.indexOf('{')));
-           errorMsg = `Security Error: ${parsed.error} (${parsed.operationType} on ${parsed.path})`;
-        } else {
-           errorMsg = `Error: ${msg}`;
-        }
-      } catch {
-        errorMsg = `Error: ${error.message || String(error)}`;
-      }
-      
-      alert(errorMsg);
+      alert("Failed to mark as completed. " + (error.message || "Please check your connection."));
       handleFirestoreError(error, OperationType.WRITE, `submissions/${submissionId}`);
     }
   };
@@ -926,31 +905,41 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                       
                       if (canSubmit) {
                         return (
-                          <button 
+                          <motion.button 
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
                             disabled={isCompleting}
                             onClick={async () => {
                               setIsCompleting(true);
                               try {
                                 await handleCompleteAssignment(selectedAssignment);
-                                setSelectedAssignment(null);
                               } catch (error: any) {
-                                console.error("Completion error:", error);
-                                alert("Failed to mark as completed. " + (error.message || ""));
+                                console.error("Button error:", error);
                               } finally {
                                 setIsCompleting(false);
                               }
                             }}
-                            className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50"
+                            className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-8 py-3 rounded-2xl font-black text-lg hover:from-indigo-700 hover:to-indigo-800 shadow-xl shadow-indigo-200 disabled:opacity-50 flex items-center gap-3 transition-all transform"
                           >
-                            {isCompleting ? 'Marking...' : 'Mark as Completed'}
-                          </button>
+                            {isCompleting ? (
+                              <>
+                                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                Marking...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 size={24} />
+                                Mark as Completed
+                              </>
+                            )}
+                          </motion.button>
                         );
                       }
                       
                       return (
-                        <div className="flex items-center gap-2 text-indigo-600 font-bold bg-indigo-50 px-4 py-2 rounded-xl">
-                          <CheckCircle2 size={18} />
-                          {subStatus === 'completed' ? 'Graded & Completed' : 'Submitted for Review'}
+                        <div className="flex items-center gap-3 text-emerald-600 font-black bg-emerald-50 px-6 py-3 rounded-2xl border border-emerald-100 shadow-sm">
+                          <Trophy size={20} className="text-amber-500 animate-bounce" />
+                          {subStatus === 'completed' ? 'Graded & Points Awarded' : 'Submitted for Review'}
                         </div>
                       );
                     })()}
@@ -972,6 +961,51 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
       </AnimatePresence>
 
       {/* Achievement Toast */}
+      {/* Celebration Overlay */}
+      <AnimatePresence>
+        {showCelebration && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 pointer-events-none z-[200] flex items-center justify-center overflow-hidden"
+          >
+             <div className="absolute inset-0 bg-white/20 backdrop-blur-[2px]" />
+             <div className="relative">
+                <motion.div
+                  initial={{ scale: 0, rotate: -20 }}
+                  animate={{ scale: 1.5, rotate: 0 }}
+                  exit={{ scale: 0, opacity: 0 }}
+                  className="bg-white p-12 rounded-[4rem] shadow-2xl border-4 border-indigo-100 flex flex-col items-center text-center"
+                >
+                   <div className="text-8xl mb-6 animate-bounce">🏆</div>
+                   <h2 className="text-4xl font-black text-gray-900 mb-2">AMAZING WORK!</h2>
+                   <p className="text-xl text-indigo-600 font-bold tracking-tight">You earned +{lastPoints} Brain Points!</p>
+                   
+                   {/* Abstract confetti shapes */}
+                   {[...Array(12)].map((_, i) => (
+                     <motion.div
+                       key={i}
+                       initial={{ x: 0, y: 0, opacity: 0 }}
+                       animate={{ 
+                         x: (Math.random() - 0.5) * 600, 
+                         y: (Math.random() - 0.5) * 600,
+                         opacity: [0, 1, 0],
+                         rotate: Math.random() * 360
+                       }}
+                       transition={{ duration: 2, repeat: Infinity, delay: Math.random() * 0.5 }}
+                       className={cn(
+                         "absolute w-4 h-4 rounded-lg",
+                         ["bg-indigo-500", "bg-amber-400", "bg-emerald-400", "bg-rose-400"][i % 4]
+                       )}
+                     />
+                   ))}
+                </motion.div>
+             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showToast && (
           <motion.div 
