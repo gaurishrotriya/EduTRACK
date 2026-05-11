@@ -132,9 +132,11 @@ function StudentProfileEditor({ profile }: { profile: UserProfile }) {
 
 interface StudentDashboardProps {
   profile: UserProfile;
+  notificationRedirect?: AppNotification | null;
+  clearNotificationRedirect?: () => void;
 }
 
-export default function StudentDashboard({ profile }: StudentDashboardProps) {
+export default function StudentDashboard({ profile, notificationRedirect, clearNotificationRedirect }: StudentDashboardProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'messages' | 'profile'>('dashboard');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -266,6 +268,24 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
     return () => { unsubU(); unsubC(); };
   }, [profile.uid]);
 
+  useEffect(() => {
+    if (notificationRedirect && clearNotificationRedirect) {
+      const msg = notificationRedirect.message.toLowerCase();
+      const senderId = (notificationRedirect as any).senderId;
+
+      if (msg.includes('message') || msg.includes('messaged')) {
+        setActiveTab('messages');
+        if (senderId) {
+          const teacher = teachers.find(t => t.uid === senderId);
+          if (teacher) setMessagingTeacher(teacher);
+        }
+      } else if (msg.includes('assignment')) {
+        setActiveTab('dashboard');
+      }
+      clearNotificationRedirect();
+    }
+  }, [notificationRedirect, teachers, clearNotificationRedirect]);
+
   const toggleRevisionItem = async (assignmentId: string, itemId: string) => {
     const subId = `${profile.uid}_${assignmentId}`;
     const subRef = doc(db, "submissions", subId);
@@ -352,6 +372,17 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
           read: false,
           createdAt: serverTimestamp(),
           type: 'achievement'
+        });
+
+        // Notify teacher
+        const teacherNotifRef = doc(collection(db, "notifications"));
+        batch.set(teacherNotifRef, {
+          userId: assignment.teacherId,
+          message: `📚 ${profile.name} completed: ${assignment.title}`,
+          read: false,
+          createdAt: serverTimestamp(),
+          type: 'submission',
+          studentId: profile.uid
         });
 
         await batch.commit();
@@ -812,13 +843,22 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
       </div>
 
       {/* Assignment Detail Modal */}
-      {selectedAssignment && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white max-w-2xl w-full rounded-3xl shadow-2xl overflow-hidden"
-          >
+      <AnimatePresence>
+        {selectedAssignment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setSelectedAssignment(null)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white max-w-2xl w-full rounded-3xl shadow-2xl overflow-hidden relative z-10"
+            >
             <div className="p-8">
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -963,6 +1003,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
           </motion.div>
         </div>
       )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {messagingTeacher && (

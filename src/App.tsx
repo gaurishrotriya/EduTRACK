@@ -8,6 +8,8 @@ import TeacherDashboard from "./components/TeacherDashboard";
 import StudentDashboard from "./components/StudentDashboard";
 import { Loader2, GraduationCap, School } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNotificationSystem } from "./hooks/useNotificationSystem";
+import { Notification as AppNotification } from "./types";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -15,6 +17,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [classes, setClasses] = useState<Class[]>([]);
   const [pendingSelection, setPendingSelection] = useState<{ role: UserRole | null, classId?: string }>({ role: null });
+  const [notificationRedirect, setNotificationRedirect] = useState<AppNotification | null>(null);
+
+  // Hook for sound and system alerts
+  useNotificationSystem(user?.uid);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -196,12 +202,23 @@ export default function App() {
   const userProfile = profile;
 
   return (
-    <Layout profile={userProfile}>
+    <Layout 
+      profile={userProfile} 
+      onNotificationClick={(n) => setNotificationRedirect(n)}
+    >
       <AnimatePresence mode="wait">
         {userProfile.role === "teacher" ? (
-          <TeacherDashboard profile={userProfile} />
+          <TeacherDashboard 
+            profile={userProfile} 
+            notificationRedirect={notificationRedirect}
+            clearNotificationRedirect={() => setNotificationRedirect(null)}
+          />
         ) : (
-          <StudentDashboard profile={userProfile} />
+          <StudentDashboard 
+            profile={userProfile} 
+            notificationRedirect={notificationRedirect}
+            clearNotificationRedirect={() => setNotificationRedirect(null)}
+          />
         )}
       </AnimatePresence>
     </Layout>

@@ -9,9 +9,10 @@ import { cn, formatDate } from "../lib/utils";
 interface LayoutProps {
   children: React.ReactNode;
   profile: UserProfile;
+  onNotificationClick?: (notification: Notification) => void;
 }
 
-export default function Layout({ children, profile }: LayoutProps) {
+export default function Layout({ children, profile, onNotificationClick }: LayoutProps) {
   const [hasUnread, setHasUnread] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -111,63 +112,76 @@ export default function Layout({ children, profile }: LayoutProps) {
 
               <AnimatePresence>
                 {showNotifications && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute right-0 mt-2 w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 overflow-hidden"
-                  >
-                    <div className="p-4 border-b border-gray-50 flex items-center justify-between">
-                      <h4 className="font-bold text-gray-900">Notifications</h4>
-                      {hasUnread && (
-                        <button 
-                          onClick={markAllAsRead}
-                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest"
-                        >
-                          Mark all as read
-                        </button>
-                      )}
-                    </div>
-                    <div className="max-h-96 overflow-y-auto">
-                      {notifications.length === 0 ? (
-                        <div className="p-8 text-center">
-                          <Bell size={32} className="mx-auto text-gray-200 mb-2" />
-                          <p className="text-xs text-gray-400 font-medium">No notifications yet</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-gray-50">
-                          {notifications.map((n) => (
-                            <div 
-                              key={n.id} 
-                              className={cn(
-                                "p-4 hover:bg-gray-50 transition-colors cursor-pointer relative group",
-                                !n.read ? "bg-indigo-50/30" : ""
-                              )}
-                              onClick={() => markAsRead(n.id)}
-                            >
-                              <div className="flex gap-3">
-                                <div className={cn(
-                                  "w-2 h-2 rounded-full mt-1.5 shrink-0",
-                                  !n.read ? "bg-indigo-600" : "bg-transparent"
-                                )} />
-                                <div className="space-y-1">
-                                  <p className={cn(
-                                    "text-sm leading-snug",
-                                    !n.read ? "text-gray-900 font-semibold" : "text-gray-600"
-                                  )}>
-                                    {n.message}
-                                  </p>
-                                  <p className="text-[10px] text-gray-400 font-medium">
-                                    {formatDate(n.createdAt)}
-                                  </p>
+                  <>
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowNotifications(false)}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 mt-2 w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 overflow-hidden"
+                    >
+                      <div className="p-4 border-b border-gray-50 flex items-center justify-between">
+                        <h4 className="font-bold text-gray-900">Notifications</h4>
+                        {hasUnread && (
+                          <button 
+                            onClick={markAllAsRead}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest"
+                          >
+                            Mark all as read
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-96 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="p-8 text-center">
+                            <Bell size={32} className="mx-auto text-gray-200 mb-2" />
+                            <p className="text-xs text-gray-400 font-medium">No notifications yet</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-gray-50">
+                            {notifications.map((n) => (
+                              <div 
+                                key={n.id} 
+                                className={cn(
+                                  "p-4 hover:bg-gray-50 transition-colors cursor-pointer relative group",
+                                  !n.read ? "bg-indigo-50/30" : ""
+                                )}
+                                onClick={() => {
+                                  markAsRead(n.id);
+                                  onNotificationClick?.(n);
+                                  setShowNotifications(false);
+                                }}
+                              >
+                                <div className="flex gap-3">
+                                  <div className={cn(
+                                    "w-2 h-2 rounded-full mt-1.5 shrink-0",
+                                    !n.read ? "bg-indigo-600" : "bg-transparent"
+                                  )} />
+                                  <div className="space-y-1">
+                                    <p className={cn(
+                                      "text-sm leading-snug",
+                                      !n.read ? "text-gray-900 font-semibold" : "text-gray-600"
+                                    )}>
+                                      {n.message}
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 font-medium">
+                                      {formatDate(n.createdAt)}
+                                    </p>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  </>
                 )}
               </AnimatePresence>
             </div>

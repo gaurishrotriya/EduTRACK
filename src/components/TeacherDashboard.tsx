@@ -68,9 +68,11 @@ function TeacherProfileEditor({ profile }: { profile: UserProfile }) {
 
 interface TeacherDashboardProps {
   profile: UserProfile;
+  notificationRedirect?: AppNotification | null;
+  clearNotificationRedirect?: () => void;
 }
 
-export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
+export default function TeacherDashboard({ profile, notificationRedirect, clearNotificationRedirect }: TeacherDashboardProps) {
   const [activeTab, setActiveTab] = useState<'assignments' | 'students' | 'classes' | 'profile' | 'leaderboard'>('assignments');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -155,6 +157,29 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
     return () => { unsub(); cUnsub(); sUnsub(); clsUnsub(); uUnsub(); unsubL(); };
   }, [profile.uid]);
 
+  useEffect(() => {
+    if (notificationRedirect && clearNotificationRedirect) {
+      const msg = notificationRedirect.message.toLowerCase();
+      const senderId = (notificationRedirect as any).senderId;
+      const studentId = (notificationRedirect as any).studentId;
+
+      if (msg.includes('message') || msg.includes('messaged')) {
+        setActiveTab('students');
+        if (senderId) {
+          const student = students.find(s => s.uid === senderId);
+          if (student) setMessagingUser(student);
+        }
+      } else if (msg.includes('submitted') || msg.includes('completed')) {
+        setActiveTab('assignments');
+        if (studentId) {
+          const student = students.find(s => s.uid === studentId);
+          if (student) setSelectedStudent(student);
+        }
+      }
+      clearNotificationRedirect();
+    }
+  }, [notificationRedirect, students, clearNotificationRedirect]);
+
   const handleCreateCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCategoryName) return;
@@ -214,6 +239,22 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
       createdAt: new Date().toISOString(),
       pointsValue,
     });
+    
+    // Notify all students in the class
+    const studentsInClass = students.filter(s => s.classId === classId);
+    const batch = writeBatch(db);
+    studentsInClass.forEach(student => {
+      const notifRef = doc(collection(db, "notifications"));
+      batch.set(notifRef, {
+        userId: student.uid,
+        message: `New Assignment: "${title}" by ${profile.name}`,
+        read: false,
+        createdAt: new Date().toISOString(),
+        type: 'assignment',
+        assignmentId: docRef.id
+      });
+    });
+    await batch.commit();
 
     // Add revision items
     if (revisionItemsInput.trim()) {
