@@ -172,7 +172,7 @@ export default function Layout({ children, profile }: LayoutProps) {
               </AnimatePresence>
             </div>
             <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100">
-               <span className="text-amber-500 font-bold">✨ {profile.points || 0} pts</span>
+               <span className="text-amber-500 font-bold">✨ {profile.points || 0} Merits</span>
             </div>
           </div>
         </header>

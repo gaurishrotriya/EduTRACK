@@ -348,7 +348,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         const notifRef = doc(collection(db, "notifications"));
         batch.set(notifRef, {
           userId: profile.uid,
-          message: `🎉 AWESOME! You completed "${assignment.title}" and earned ${basePoints} Brain Points!`,
+          message: `🎉 AWESOME! You completed "${assignment.title}" and earned ${basePoints} Student Merits!`,
           read: false,
           createdAt: serverTimestamp(),
           type: 'achievement'
@@ -360,7 +360,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         setShowCelebration(true);
         setTimeout(() => setShowCelebration(false), 4000);
         
-        setShowToast({ message: `Level Up! +${basePoints} BP`, points: basePoints });
+        setShowToast({ message: `Level Up! +${basePoints} Merits`, points: basePoints });
         setTimeout(() => setShowToast(null), 5000);
       } else {
         // If already completed, just close modal
@@ -427,7 +427,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
         <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 rounded-2xl border border-indigo-100">
                 <Trophy size={16} className="text-amber-500" />
-                <span className="text-sm font-black text-indigo-700">{profile.points || 0} <span className="text-[10px] text-indigo-400 font-bold">BP</span></span>
+                <span className="text-sm font-black text-indigo-700">{profile.points || 0} <span className="text-[10px] text-indigo-400 font-bold">Merits</span></span>
             </div>
             <div className="relative">
                 <button 
@@ -680,7 +680,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-sm font-black text-indigo-600">+{sub?.pointsAwarded || 0} BP</p>
+                                        <p className="text-sm font-black text-indigo-600">+{sub?.pointsAwarded || 0} Merits</p>
                                         <p className="text-[10px] text-gray-400 font-bold uppercase">{sub?.status === 'completed' ? 'Graded' : 'Submitted'}</p>
                                     </div>
                                 </div>
@@ -994,7 +994,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                 >
                    <div className="text-8xl mb-6 animate-bounce">🏆</div>
                    <h2 className="text-4xl font-black text-gray-900 mb-2">AMAZING WORK!</h2>
-                   <p className="text-xl text-indigo-600 font-bold tracking-tight">You earned +{lastPoints} Brain Points!</p>
+                   <p className="text-xl text-indigo-600 font-bold tracking-tight">You earned +{lastPoints} Student Merits!</p>
                    
                    {/* Abstract confetti shapes */}
                    {[...Array(12)].map((_, i) => (
@@ -1033,7 +1033,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
              </div>
              <div>
                 <p className="font-bold text-lg">{showToast.message}</p>
-                <p className="text-white/80 text-sm font-medium">You earned +{showToast.points} BP!</p>
+                <p className="text-white/80 text-sm font-medium">You earned +{showToast.points} Merits!</p>
              </div>
           </motion.div>
         )}

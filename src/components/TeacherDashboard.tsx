@@ -98,6 +98,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
   const [revisionItemsInput, setRevisionItemsInput] = useState("");
   const [difficulty, setDifficulty] = useState<"Easy" | "Medium" | "Hard">("Medium");
   const [estimatedTime, setEstimatedTime] = useState("");
+  const [pointsValue, setPointsValue] = useState(10);
   const [attachments, setAttachments] = useState<{ name: string, url: string, type: string }[]>([]);
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentUrl, setAttachmentUrl] = useState("");
@@ -211,7 +212,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
       attachments,
       teacherId: profile.uid,
       createdAt: new Date().toISOString(),
-      pointsValue: 10,
+      pointsValue,
     });
 
     // Add revision items
@@ -261,6 +262,12 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
      if (selectedStudent && selectedStudent.uid === studentId) {
         setSelectedStudent({ ...selectedStudent, classId: newClassId });
      }
+  };
+
+  const handleDeleteStudent = async (uid: string) => {
+    if (window.confirm("Are you sure you want to remove this student? This will delete their profile.")) {
+      await deleteDoc(doc(db, "users", uid));
+    }
   };
 
   const getSubmissionsForAssignment = (assignmentId: string) => {
@@ -390,7 +397,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                       </div>
                       <div className="text-right">
                         <p className="font-black text-gray-900">{user.points || 0}</p>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase">BP</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">Merits</p>
                       </div>
                     </div>
                   ))}
@@ -421,7 +428,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                       </div>
                       <div className="text-right">
                         <p className="text-xl font-black text-indigo-600">{cls.points}</p>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase">Total BP</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">Total Merits</p>
                       </div>
                     </div>
                   ))}
@@ -482,11 +489,18 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                          <div>
                             <p className="font-bold text-gray-900">{student.name}</p>
                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
-                               {studentClass ? `Class ${studentClass.name}` : 'No Class'} • {student.points || 0} BP
+                               {studentClass ? `Class ${studentClass.name}` : 'No Class'} • {student.points || 0} Merits
                             </p>
                          </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => handleDeleteStudent(student.uid)}
+                          className="p-2 hover:bg-rose-50 text-gray-300 hover:text-rose-500 rounded-lg transition-colors"
+                          title="Delete Student"
+                        >
+                          <Trash2 size={18} />
+                        </button>
                         <button 
                           onClick={() => setMessagingUser(student)}
                           className="p-2 hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 rounded-lg transition-colors"
@@ -563,7 +577,7 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                     </p>
                   </div>
                   <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
-                     <div className="text-xs font-bold text-gray-400 uppercase">Class Points</div>
+                     <div className="text-xs font-bold text-gray-400 uppercase">Class Merits</div>
                      <div className="text-lg font-black text-green-600">{cls.totalPoints || 0}</div>
                   </div>
                 </div>
@@ -759,6 +773,16 @@ export default function TeacherDashboard({ profile }: TeacherDashboardProps) {
                       <option value="Medium">Medium</option>
                       <option value="Hard">Hard</option>
                     </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-700">Merits for Completion</label>
+                    <input 
+                      type="number" 
+                      value={pointsValue}
+                      onChange={(e) => setPointsValue(parseInt(e.target.value))}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="e.g. 10"
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-gray-700">Estimated Time (e.g. 45m)</label>

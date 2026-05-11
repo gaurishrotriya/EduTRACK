@@ -118,36 +118,56 @@ export default function StudentProfileView({ student, classData, classList = [],
                 <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Performance</span>
                 <Award className="text-amber-500" size={20} />
              </div>
-             <div className="text-3xl font-black text-gray-900 mb-2">{student.points || 0} BP</div>
-             <p className="text-xs text-gray-400 font-semibold mb-6 uppercase">Total Battle Points</p>
+             <div className="text-3xl font-black text-gray-900 mb-2">{student.points || 0} Merits</div>
+             <p className="text-xs text-gray-400 font-semibold mb-6 uppercase">Total Student Merits</p>
              
              {showAwardPoints ? (
-               <div className="space-y-4 mb-6 p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                  <p className="text-xs font-bold text-amber-700 uppercase">Award Bonus Points</p>
-                  <div className="flex gap-2">
+               <div className="space-y-4 mb-6 p-6 bg-amber-50 rounded-3xl border border-amber-100 shadow-sm">
+                  <p className="text-sm font-black text-amber-700 uppercase tracking-tight">Adjust Merits</p>
+                  <div className="flex flex-col gap-3">
                      <input 
                        type="number" 
                        value={awardAmount}
                        onChange={(e) => setAwardAmount(parseInt(e.target.value))}
-                       className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl outline-none text-sm font-bold"
+                       className="w-full px-4 py-4 bg-white border-2 border-amber-200 rounded-2xl outline-none text-2xl font-black text-center focus:border-amber-500 transition-all"
                      />
-                     <button 
-                       onClick={handleAwardPoints}
-                       disabled={awarding}
-                       className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-all disabled:opacity-50"
-                     >
-                       {awarding ? '...' : 'Award'}
-                     </button>
+                     <div className="grid grid-cols-2 gap-2">
+                       <button 
+                         onClick={handleAwardPoints}
+                         disabled={awarding}
+                         className="bg-emerald-600 text-white px-4 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                       >
+                         {awarding ? '...' : <Plus size={16} />} Award
+                       </button>
+                       <button 
+                         onClick={async () => {
+                           setAwarding(true);
+                           try {
+                             const userRef = doc(db, "users", student.uid);
+                             await updateDoc(userRef, { points: increment(-Math.abs(awardAmount)) });
+                             setShowAwardPoints(false);
+                           } catch (error) {
+                             console.error("Error deducting merits:", error);
+                           } finally {
+                             setAwarding(false);
+                           }
+                         }}
+                         disabled={awarding}
+                         className="bg-rose-600 text-white px-4 py-3 rounded-xl text-sm font-bold hover:bg-rose-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                       >
+                         Deduct
+                       </button>
+                     </div>
                   </div>
-                  <button onClick={() => setShowAwardPoints(false)} className="text-[10px] text-amber-600 font-bold underline">Cancel</button>
+                  <button onClick={() => setShowAwardPoints(false)} className="w-full text-center text-xs text-gray-400 font-bold hover:text-gray-600 transition-colors py-2">Close Adjustment Tool</button>
                </div>
              ) : (
                <button 
                  onClick={() => setShowAwardPoints(true)}
-                 className="w-full mb-6 p-3 bg-amber-50 text-amber-600 rounded-2xl text-xs font-bold hover:bg-amber-100 transition-all flex items-center justify-center gap-2"
+                 className="w-full mb-6 p-4 bg-amber-50 text-amber-600 rounded-2xl text-sm font-black hover:bg-amber-100 transition-all flex items-center justify-center gap-2 shadow-sm border border-amber-100"
                >
-                 <Plus size={14} />
-                 Special Award
+                 <Award size={18} />
+                 Adjust Student Merits
                </button>
              )}
 
@@ -270,7 +290,7 @@ export default function StudentProfileView({ student, classData, classList = [],
                               "text-[10px] font-bold px-2 py-1 rounded-lg inline-block text-center min-w-[100px]",
                               status === 'completed' ? "bg-green-100 text-green-700" : "bg-indigo-100 text-indigo-700"
                            )}>
-                              {status === 'completed' ? `GRADED (+${sub?.pointsAwarded} BP)` : "PENDING REVIEW"}
+                              {status === 'completed' ? `GRADED (+${sub?.pointsAwarded} Merits)` : "PENDING REVIEW"}
                            </div>
                            {sub?.submittedAt && (
                              <p className="text-[8px] text-gray-400 mt-1 uppercase tracking-tighter">Done: {formatDate(sub.submittedAt)}</p>
