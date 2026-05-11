@@ -137,7 +137,7 @@ interface StudentDashboardProps {
 }
 
 export default function StudentDashboard({ profile, notificationRedirect, clearNotificationRedirect }: StudentDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'messages' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'messages' | 'profile' | 'school'>('dashboard');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -333,7 +333,8 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
       const dueDate = new Date(assignment.dueDate);
       const now = new Date();
       const onTime = now <= dueDate;
-      const basePoints = onTime ? (assignment.pointsValue || 10) : 5;
+      // ALWAYS use the pointsValue set by the teacher, ignore the default 5 for late if user wants it "according to amount set"
+      const basePoints = assignment.pointsValue || 10;
 
       let shouldReward = false;
       
@@ -442,6 +443,16 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
             >
                 <MessageSquare size={18} />
                 Teacher Inbox
+            </button>
+            <button 
+                onClick={() => setActiveTab('school')}
+                className={cn(
+                    "flex items-center gap-2 text-sm font-bold transition-colors",
+                    activeTab === 'school' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+                )}
+            >
+                <School size={18} />
+                School Community
             </button>
             <button 
                 onClick={() => setActiveTab('profile')}
@@ -721,7 +732,7 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
                 </div>
             </div>
           </motion.div>
-        ) : (
+        ) : activeTab === 'messages' ? (
           <motion.div 
             key="messages"
             initial={{ opacity: 0, x: 20 }}
@@ -763,7 +774,114 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
               )}
             </div>
           </motion.div>
-        )}
+        ) : activeTab === 'school' ? (
+          <motion.div
+            key="school"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="lg:col-span-2 space-y-8"
+          >
+            <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+                        <School size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-gray-900">Your Class</h3>
+                        {profile.classId && (
+                            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
+                                {classStandings.find(c => c.id === profile.classId)?.name || "Current Class"}
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Classmates */}
+                    <div>
+                        <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Classmates</h4>
+                        <div className="space-y-3">
+                            {classStandings.length > 0 ? (
+                                // This is a hacky way since our leaderboard usually only shows top 10 classmates
+                                // We might need to fetch all users in class properly
+                                leaderboard
+                                    .filter(u => u.role === 'student' && u.classId === profile.classId)
+                                    .map(student => (
+                                        <div key={student.uid} className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-transparent">
+                                            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-lg border border-gray-100">
+                                                {student.avatar || student.name.slice(0, 1).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-gray-900 text-sm">{student.name} {student.uid === profile.uid && "(You)"}</p>
+                                                <p className="text-[10px] text-indigo-600 font-black">{student.points || 0} Merits</p>
+                                            </div>
+                                        </div>
+                                    ))
+                            ) : (
+                                <p className="text-xs text-gray-400">No classmates found.</p>
+                            )}
+                        </div>
+                    </div>
+                    {/* Class Teachers */}
+                    <div>
+                        <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Teachers</h4>
+                        <div className="space-y-3">
+                            {teachers.map(teacher => (
+                                <div key={teacher.uid} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-lg border border-indigo-100">
+                                            {teacher.avatar || "👨‍🏫"}
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-gray-900 text-sm">{teacher.name}</p>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase">{teacher.subjects?.join(", ") || "Faculty"}</p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setMessagingTeacher(teacher)}
+                                        className="p-2 hover:bg-indigo-50 text-indigo-600 rounded-lg transition-colors"
+                                    >
+                                        <MessageSquare size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <h3 className="text-xl font-bold text-gray-900 mb-6 font-space-grotesk">Global Hall of Fame</h3>
+                <div className="space-y-4">
+                    {leaderboard.map((user, idx) => (
+                        <div key={user.uid} className="flex items-center justify-between p-4 bg-gray-50/50 rounded-2xl border border-transparent hover:border-indigo-100 transition-all">
+                            <div className="flex items-center gap-4">
+                                <span className={cn(
+                                    "w-8 text-lg font-black",
+                                    idx === 0 ? "text-amber-500" : idx === 1 ? "text-gray-400" : idx === 2 ? "text-amber-700" : "text-gray-200"
+                                )}>#{idx + 1}</span>
+                                <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-2xl border border-gray-100 relative">
+                                    {user.avatar || user.name.slice(0, 1).toUpperCase()}
+                                    {user.role === 'teacher' && <div className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 rounded-full border-2 border-white ring-2 ring-indigo-50" />}
+                                </div>
+                                <div>
+                                    <p className="font-bold text-gray-900">{user.name}</p>
+                                    <p className="text-xs text-gray-400 font-bold">
+                                        {user.role === 'teacher' ? 'Staff' : `Class ${classStandings.find(c => c.id === user.classId)?.name || "Student"}`}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-lg font-black text-indigo-600">{user.points || 0}</p>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Merits</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+          </motion.div>
+        ) : null}
       </AnimatePresence>
 
       {/* Sidebar Section */}

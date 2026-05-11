@@ -218,6 +218,32 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
     });
   };
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Small files only for Base64 (max 1MB)
+    if (file.size > 1024 * 1024) {
+      alert("File too large. Please upload files smaller than 1MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setAttachments([...attachments, { 
+        name: file.name, 
+        url: base64, 
+        type: file.type.includes('image') ? 'image' : 'document' 
+      }]);
+    };
+    reader.readAsDataURL(file);
+    // Reset input
+    e.target.value = '';
+  };
+
   const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !subject || !dueDate || !classId) {
@@ -846,7 +872,7 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
                   />
                 </div>
                 
-                <div className="space-y-2">
+                <div className="space-y-4">
                    <label className="text-sm font-medium text-gray-700">Attachments (Optional)</label>
                    <div className="flex gap-2">
                       <input 
@@ -857,8 +883,27 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
                         type="text" value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)}
                         placeholder="URL (http...)" className="flex-1 px-3 py-1 text-sm border border-gray-200 rounded-lg outline-none"
                       />
-                      <button onClick={addAttachment} className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-all">Add</button>
+                      <button onClick={addAttachment} className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-all">Add Link</button>
                    </div>
+                   
+                   <div className="flex flex-col gap-2">
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleFileUpload} 
+                        className="hidden" 
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full py-4 border-2 border-dashed border-gray-100 rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group"
+                      >
+                         <Plus className="text-gray-300 group-hover:text-indigo-600 transition-colors" size={24} />
+                         <span className="text-xs font-bold text-gray-400 group-hover:text-indigo-600">Upload from Phone or Laptop</span>
+                         <span className="text-[10px] text-gray-300 group-hover:text-indigo-400">PDF, Doc, Image (Max 1MB)</span>
+                      </button>
+                   </div>
+
                    {attachments.length > 0 && (
                      <div className="flex flex-wrap gap-2 mt-2">
                         {attachments.map((a, i) => (
@@ -953,7 +998,7 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
                                {s.status === 'submitted' && (
                                  <div className="flex gap-2">
                                    <button 
-                                     onClick={() => handleGradeSubmission(s.id, s.studentId, 10)}
+                                     onClick={() => handleGradeSubmission(s.id, s.studentId, assignment.pointsValue || 10)}
                                      className="flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-lg text-xs font-bold hover:bg-green-200 transition-colors"
                                    >
                                       Approval
