@@ -22,9 +22,13 @@ export function useNotificationSystem(userId: string | undefined) {
         const ctx = new AudioContextClass();
         audioContextRef.current = ctx;
 
-        const response = await fetch(PING_SOUND);
-        const arrayBuffer = await response.arrayBuffer();
-        audioBufferRef.current = await ctx.decodeAudioData(arrayBuffer);
+        const base64Data = PING_SOUND.split(',')[1];
+        const binaryString = window.atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        audioBufferRef.current = await ctx.decodeAudioData(bytes.buffer);
         
         isInitializedRef.current = true;
         
