@@ -526,7 +526,7 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
               <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
                 <div className="flex items-center gap-2 mb-6">
                   <Star className="text-indigo-500" size={24} />
-                  <h3 className="text-xl font-bold text-gray-900">House Standings</h3>
+                  <h3 className="text-xl font-bold text-gray-900">Class Standings</h3>
                 </div>
                 <div className="space-y-4">
                   {classStandings.map((cls, idx) => (
