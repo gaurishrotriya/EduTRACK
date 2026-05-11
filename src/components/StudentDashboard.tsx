@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { UserProfile, Assignment, Submission, Category, Test, RevisionItem, Class } from "../types";
 import { db } from "../firebase";
 import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDoc, arrayUnion, increment, serverTimestamp, writeBatch } from "firebase/firestore";
-import { Calendar as CalendarIcon, CheckCircle2, Circle, Clock, MessageSquare, Trophy, Filter, Star, School, LayoutDashboard, ChevronRight } from "lucide-react";
+import { Calendar as CalendarIcon, CheckCircle2, Circle, Clock, MessageSquare, Trophy, Filter, Star, School, LayoutDashboard, ChevronRight, BookOpen } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, formatDate } from "../lib/utils";
 import Calendar from "react-calendar";
@@ -144,27 +144,57 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   const [classStandings, setClassStandings] = useState<{id: string, name: string, points: number}[]>([]);
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
   
+  const [filter, setFilter] = useState<string>("all");
+  const [date, setDate] = useState(new Date());
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [messagingTeacher, setMessagingTeacher] = useState<UserProfile | null>(null);
+  const [revisionItems, setRevisionItems] = useState<RevisionItem[]>([]);
+  
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showToast, setShowToast] = useState<{message: string, points: number} | null>(null);
 
   useEffect(() => {
+    if (!profile.uid || !profile.classId) return;
+
     // Real-time listeners
     const unsubN = onSnapshot(query(collection(db, "notifications"), where("userId", "==", profile.uid)), (snap) => {
-      setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setNotifications(data.sort((a: any, b: any) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      }));
+    }, (error) => {
+      console.error("Notifications listener error:", error);
     });
     const unsubA = onSnapshot(query(collection(db, "assignments"), where("classId", "==", profile.classId)), (snap) => {
       setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assignment)));
+    }, (error) => {
+      console.error("Assignments listener error:", error);
     });
     const unsubR = onSnapshot(collection(db, "revisionItems"), (snap) => {
       setRevisionItems(snap.docs.map(d => ({ id: d.id, ...d.data() } as RevisionItem)));
+    }, (error) => {
+      console.error("Revision items listener error:", error);
     });
     const unsubS = onSnapshot(query(collection(db, "submissions"), where("studentId", "==", profile.uid)), (snap) => {
       setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Submission)));
+    }, (error) => {
+      console.error("Submissions listener error:", error);
     });
     const unsubC = onSnapshot(collection(db, "categories"), (snap) => {
       setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() } as Category)));
+    }, (error) => {
+      console.error("Categories listener error:", error);
     });
+    const unsubClasses = onSnapshot(collection(db, "classes"), (cSnap) => {
+      const classesData = cSnap.docs.map(d => ({id: d.id, ...d.data()} as Class));
+    }, (error) => {
+      console.error("Classes listener error:", error);
+    });
+
     const unsubL = onSnapshot(collection(db, "users"), (snap) => {
       const users = snap.docs.map(d => d.data() as UserProfile);
       
@@ -175,27 +205,56 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
       );
       setLeaderboard(visibleUsers.sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 10));
 
-      const studentUsers = users.filter(u => u.role === 'student');
-      // Aggregate class standings
-      onSnapshot(collection(db, "classes"), (cSnap) => {
-          const classesData = cSnap.docs.map(d => ({id: d.id, ...d.data()} as Class));
-          const standings = classesData.map(c => {
-             const classUsers = studentUsers.filter(u => u.classId === c.id);
-             const userPoints = classUsers.reduce((sum, u) => sum + (u.points || 0), 0);
-             return { id: c.id, name: c.name, points: userPoints };
-          }).sort((a,b) => b.points - a.points);
-          setClassStandings(standings);
-      });
-
-      // Find teachers
+      // Update teachers
       setTeachers(users.filter(u => u.role === 'teacher'));
+    }, (error) => {
+      console.error("Users listener error:", error);
     });
+
     const unsubT = onSnapshot(collection(db, "tests"), (snap) => {
       setTests(snap.docs.map(d => ({ id: d.id, ...d.data() } as Test)));
+    }, (error) => {
+      console.error("Tests listener error:", error);
     });
 
-    return () => { unsubA(); unsubS(); unsubC(); unsubL(); unsubT(); unsubR(); };
+    return () => { 
+      unsubN(); unsubA(); unsubS(); unsubC(); unsubL(); unsubT(); unsubR(); unsubClasses();
+    };
   }, [profile.uid, profile.classId]);
+
+  // Separate effect for class standings to avoid nested listeners
+  useEffect(() => {
+    if (!profile.uid) return;
+    
+    let classes: Class[] = [];
+    let students: UserProfile[] = [];
+
+    const updateStandings = () => {
+      if (classes.length === 0) return;
+      const standings = classes.map(c => {
+         const classUsers = students.filter(u => u.classId === c.id);
+         const userPoints = classUsers.reduce((sum, u) => sum + (u.points || 0), 0);
+         return { id: c.id, name: c.name, points: userPoints };
+      }).sort((a,b) => b.points - a.points);
+      setClassStandings(standings);
+    };
+
+    const unsubU = onSnapshot(collection(db, "users"), (uSnap) => {
+        students = uSnap.docs.map(d => d.data() as UserProfile).filter(u => u.role === 'student');
+        updateStandings();
+    }, (error) => {
+        console.error("Users (standings) listener error:", error);
+    });
+
+    const unsubC = onSnapshot(collection(db, "classes"), (cSnap) => {
+        classes = cSnap.docs.map(d => ({id: d.id, ...d.data()} as Class));
+        updateStandings();
+    }, (error) => {
+        console.error("Classes (standings) listener error:", error);
+    });
+
+    return () => { unsubU(); unsubC(); };
+  }, [profile.uid]);
 
   const toggleRevisionItem = async (assignmentId: string, itemId: string) => {
     const subId = `${profile.uid}_${assignmentId}`;
@@ -233,6 +292,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
   };
 
   const handleCompleteAssignment = async (assignment: Assignment) => {
+    if (!profile.uid) return;
     const submissionId = `${profile.uid}_${assignment.id}`;
     const subRef = doc(db, "submissions", submissionId);
     try {
@@ -263,7 +323,7 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
           userId: profile.uid,
           message: `😊 Good job ${profile.name}! You earned ${basePoints} points for completing "${assignment.title}".`,
           read: false,
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
           type: 'achievement'
         });
         
@@ -288,15 +348,11 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
             userId: profile.uid,
             message: `😊 Good job ${profile.name}! You earned ${basePoints} points for completing "${assignment.title}".`,
             read: false,
-            createdAt: new Date().toISOString(),
+            createdAt: serverTimestamp(),
             type: 'achievement'
           });
           
           await batch.commit();
-        } else {
-          // If already submitted, just close modal
-           setSelectedAssignment(null);
-           return;
         }
       }
       
@@ -306,13 +362,22 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
       setSelectedAssignment(null);
     } catch (error: any) {
       console.error("Completion error details:", error);
-      // Try to parse firestore error if it matches our expected JSON format
+      let errorMsg = "Failed to mark as completed. Please check your connection.";
+      
       try {
-        const parsed = JSON.parse(error.message);
-        alert(`Failed to save progress: ${parsed.error}`);
+        // Try to parse firestore error if it matches our expected JSON format or standard Error
+        const msg = error.message || String(error);
+        if (msg.includes('{')) {
+           const parsed = JSON.parse(msg.substring(msg.indexOf('{')));
+           errorMsg = `Security Error: ${parsed.error} (${parsed.operationType} on ${parsed.path})`;
+        } else {
+           errorMsg = `Error: ${msg}`;
+        }
       } catch {
-        alert("Failed to mark as completed. Please check your connection.");
+        errorMsg = `Error: ${error.message || String(error)}`;
       }
+      
+      alert(errorMsg);
       handleFirestoreError(error, OperationType.WRITE, `submissions/${submissionId}`);
     }
   };
@@ -855,31 +920,40 @@ export default function StudentDashboard({ profile }: StudentDashboardProps) {
                         {selectedAssignment.pointsValue} Points
                       </div>
                    </div>
-                    {!getSubmissionStatus(selectedAssignment.id)?.status || getSubmissionStatus(selectedAssignment.id)?.status === 'pending' ? (
-                      <button 
-                        disabled={isCompleting}
-                        onClick={async () => {
-                          setIsCompleting(true);
-                          try {
-                            await handleCompleteAssignment(selectedAssignment);
-                            setSelectedAssignment(null);
-                          } catch (error: any) {
-                            console.error("Completion error:", error);
-                            alert("Failed to mark as completed. " + (error.message || ""));
-                          } finally {
-                            setIsCompleting(false);
-                          }
-                        }}
-                        className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50"
-                      >
-                        {isCompleting ? 'Marking...' : 'Mark as Completed'}
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-2 text-indigo-600 font-bold bg-indigo-50 px-4 py-2 rounded-xl">
-                        <CheckCircle2 size={18} />
-                        {getSubmissionStatus(selectedAssignment.id)?.status === 'completed' ? 'Graded & Completed' : 'Submitted for Review'}
-                      </div>
-                    )}
+                    {(() => {
+                      const subStatus = getSubmissionStatus(selectedAssignment.id)?.status;
+                      const canSubmit = !subStatus || subStatus === 'pending' || (subStatus as any) === 'not_started' || subStatus === 'late';
+                      
+                      if (canSubmit) {
+                        return (
+                          <button 
+                            disabled={isCompleting}
+                            onClick={async () => {
+                              setIsCompleting(true);
+                              try {
+                                await handleCompleteAssignment(selectedAssignment);
+                                setSelectedAssignment(null);
+                              } catch (error: any) {
+                                console.error("Completion error:", error);
+                                alert("Failed to mark as completed. " + (error.message || ""));
+                              } finally {
+                                setIsCompleting(false);
+                              }
+                            }}
+                            className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50"
+                          >
+                            {isCompleting ? 'Marking...' : 'Mark as Completed'}
+                          </button>
+                        );
+                      }
+                      
+                      return (
+                        <div className="flex items-center gap-2 text-indigo-600 font-bold bg-indigo-50 px-4 py-2 rounded-xl">
+                          <CheckCircle2 size={18} />
+                          {subStatus === 'completed' ? 'Graded & Completed' : 'Submitted for Review'}
+                        </div>
+                      );
+                    })()}
                 </div>
               </div>
             </div>
