@@ -2,11 +2,10 @@ import React, { useState, useEffect } from "react";
 import { UserProfile, Assignment, Submission, Category, Test, RevisionItem, Class } from "../types";
 import { db } from "../firebase";
 import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDoc, arrayUnion, increment, serverTimestamp, writeBatch } from "firebase/firestore";
-import { Calendar as CalendarIcon, CheckCircle2, Circle, Clock, MessageSquare, Trophy, Filter, Star, School, LayoutDashboard, ChevronRight, BookOpen } from "lucide-react";
+import { Calendar as CalendarIcon, CheckCircle2, Circle, Clock, MessageSquare, Trophy, Filter, Star, School, LayoutDashboard, ChevronRight, BookOpen, Bell } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, formatDate } from "../lib/utils";
-import Calendar from "react-calendar";
-import "react-calendar/dist/Calendar.css";
+import CalendarGrid from "./CalendarGrid";
 import Chatbot from "./Chatbot";
 import ChatWindow from "./ChatWindow";
 import { User as UserIcon, Save } from "lucide-react";
@@ -643,39 +642,40 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
             </div>
 
             {/* Calendar View */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-              <h3 className="text-xl font-bold text-gray-900 mb-6">Study Calendar</h3>
-              <div className="flex flex-col md:flex-row gap-8">
-                <div className="calendar-container">
-                  <Calendar 
-                    onChange={setDate as any} 
-                    value={date} 
-                    className="border-none shadow-none font-sans"
-                    tileContent={({ date }) => {
-                      const events = getEventsForDate(date);
-                      if (events.length > 0) {
-                        return <div className="mt-1 flex justify-center gap-0.5"><div className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></div></div>
-                      }
-                      return null;
-                    }}
-                  />
-                </div>
-                <div className="flex-1 space-y-4">
-                  <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">{formatDate(date.toISOString())}</p>
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900">Your Academic Calendar</h3>
+              </div>
+              
+              <CalendarGrid 
+                assignments={assignments}
+                tests={tests}
+                selectedDate={date}
+                onSelectDate={setDate}
+              />
+              
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">{formatDate(date.toISOString())}</p>
                   {getEventsForDate(date).length === 0 ? (
-                    <p className="text-gray-400 text-sm italic">Nothing planned for this day.</p>
+                    <div className="py-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                        <p className="text-gray-400 text-sm italic">Nothing planned for this day.</p>
+                    </div>
                   ) : (
-                    getEventsForDate(date).map((event: any) => (
-                      <div key={event.id} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
-                        <div className={cn("w-2 h-8 rounded-full", 'subject' in event ? "bg-indigo-500" : "bg-green-500")}></div>
-                        <div>
-                          <p className="font-bold text-sm text-gray-900">{event.title}</p>
-                          <p className="text-xs text-gray-500">{event.subject}</p>
-                        </div>
-                      </div>
-                    ))
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {getEventsForDate(date).map((event: any) => (
+                          <div key={event.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-4 group hover:border-indigo-200 transition-all">
+                            <div className={cn("w-1.5 h-12 rounded-full", 'subject' in event ? "bg-indigo-500" : "bg-rose-500")}></div>
+                            <div className="flex-1">
+                              <p className="font-bold text-gray-900">{event.title}</p>
+                              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">{event.subject || 'Test Event'}</p>
+                            </div>
+                            <button className="p-2 text-gray-300 group-hover:text-indigo-600 transition-colors">
+                                <ChevronRight size={18} />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
                   )}
-                </div>
               </div>
             </div>
           </motion.div>

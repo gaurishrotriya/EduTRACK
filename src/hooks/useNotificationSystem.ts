@@ -69,10 +69,19 @@ export function useNotificationSystem(userId: string | undefined) {
 
   const showSystemNotification = (title: string, body: string) => {
     if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, {
-        body,
-        icon: "/favicon.ico" // You might need a real icon path
-      });
+      // Use Service Worker for notification if available, as it's more robust
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'NOTIFY',
+          title,
+          message: body
+        });
+      } else {
+        new Notification(title, {
+          body,
+          icon: "/favicon.ico"
+        });
+      }
     }
   };
 
