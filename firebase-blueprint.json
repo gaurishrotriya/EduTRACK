@@ -135,6 +135,31 @@
         "participants": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["senderId", "receiverId", "text", "participants"]
+    },
+    "SchoolEvent": {
+      "title": "SchoolEvent",
+      "description": "School-wide or class-specific events",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "teacherId": { "type": "string" },
+        "type": { "type": "string", "enum": ["academic", "holiday", "extracurricular", "other"] },
+        "classId": { "type": "string" },
+        "attachments": { 
+          "type": "array", 
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "url": { "type": "string" },
+              "type": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["title", "date", "teacherId", "type"]
     }
   },
   "firestore": {
@@ -146,6 +171,7 @@
     "/submissions/{submissionId}": { "schema": "Submission", "description": "Assignment submissions" },
     "/revisionItems/{revisionItemId}": { "schema": "RevisionItem", "description": "Checklist items" },
     "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" },
-    "/messages/{messageId}": { "schema": "Message", "description": "Direct messages" }
+    "/messages/{messageId}": { "schema": "Message", "description": "Direct messages" },
+    "/schoolEvents/{eventId}": { "schema": "SchoolEvent", "description": "Academic and school-wide events" }
   }
 }

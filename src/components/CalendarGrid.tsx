@@ -1,17 +1,18 @@
 import React from 'react';
-import { Assignment, Test } from '../types';
-import { cn, formatDate } from '../lib/utils';
+import { Assignment, Test, SchoolEvent } from '../types';
+import { cn } from '../lib/utils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
 
 interface CalendarGridProps {
   assignments: Assignment[];
   tests?: Test[];
+  schoolEvents?: SchoolEvent[];
   onSelectDate: (date: Date) => void;
   selectedDate: Date;
 }
 
-export default function CalendarGrid({ assignments, tests = [], onSelectDate, selectedDate }: CalendarGridProps) {
+export default function CalendarGrid({ assignments, tests = [], schoolEvents = [], onSelectDate, selectedDate }: CalendarGridProps) {
   const [currentMonth, setCurrentMonth] = React.useState(new Date());
 
   const monthStart = startOfMonth(currentMonth);
@@ -27,11 +28,12 @@ export default function CalendarGrid({ assignments, tests = [], onSelectDate, se
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
-  const getEventsForDate = (date: Date) => {
+  const getDayEvents = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
     const dayAssignments = assignments.filter(a => a.dueDate.startsWith(dateStr));
     const dayTests = tests.filter(t => t.date.startsWith(dateStr));
-    return { assignments: dayAssignments, tests: dayTests };
+    const dayEvents = schoolEvents.filter(e => e.date.startsWith(dateStr));
+    return { assignments: dayAssignments, tests: dayTests, events: dayEvents };
   };
 
   const subjects = Array.from(new Set(assignments.map(a => a.subject)));
@@ -84,7 +86,7 @@ export default function CalendarGrid({ assignments, tests = [], onSelectDate, se
       {/* Calendar Body */}
       <div className="grid grid-cols-7 auto-rows-[minmax(120px,auto)]">
         {calendarDays.map((day, idx) => {
-          const { assignments: dayAssignments, tests: dayTests } = getEventsForDate(day);
+          const { assignments: dayAssignments, tests: dayTests, events: dayEvents } = getDayEvents(day);
           const isSelected = isSameDay(day, selectedDate);
           const isCurrentMonth = isSameMonth(day, monthStart);
           const isToday = isSameDay(day, new Date());
@@ -129,6 +131,15 @@ export default function CalendarGrid({ assignments, tests = [], onSelectDate, se
                     title={t.title}
                   >
                     📝 {t.title}
+                  </div>
+                ))}
+                {dayEvents.map(e => (
+                  <div 
+                    key={e.id} 
+                    className="text-[10px] p-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 leading-tight truncate font-bold"
+                    title={e.title}
+                  >
+                    🎉 {e.title}
                   </div>
                 ))}
               </div>

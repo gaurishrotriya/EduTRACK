@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { UserProfile, Assignment, Submission, Category, Test, RevisionItem, Class } from "../types";
+import { UserProfile, Assignment, Submission, Category, Test, RevisionItem, Class, SchoolEvent } from "../types";
 import { db } from "../firebase";
 import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDoc, arrayUnion, increment, serverTimestamp, writeBatch } from "firebase/firestore";
 import { Calendar as CalendarIcon, CheckCircle2, Circle, Clock, MessageSquare, Trophy, Filter, Star, School, LayoutDashboard, ChevronRight, BookOpen, Bell } from "lucide-react";
@@ -141,6 +141,7 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [tests, setTests] = useState<Test[]>([]);
+  const [schoolEvents, setSchoolEvents] = useState<SchoolEvent[]>([]);
   const [leaderboard, setLeaderboard] = useState<UserProfile[]>([]);
   const [classStandings, setClassStandings] = useState<{id: string, name: string, points: number}[]>([]);
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
@@ -228,8 +229,14 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
       console.error("Tests listener error:", error);
     });
 
+    const unsubE = onSnapshot(collection(db, "schoolEvents"), (snap) => {
+      setSchoolEvents(snap.docs.map(d => ({ id: d.id, ...d.data() } as SchoolEvent)));
+    }, (error) => {
+      console.error("Events listener error:", error);
+    });
+
     return () => { 
-      unsubN(); unsubA(); unsubS(); unsubC(); unsubL(); unsubT(); unsubR(); unsubClasses();
+      unsubN(); unsubA(); unsubS(); unsubC(); unsubL(); unsubT(); unsubR(); unsubClasses(); unsubE();
     };
   }, [profile.uid, profile.classId]);
 
@@ -415,7 +422,10 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
     const dateStr = d.toISOString().split('T')[0];
     const dayAssignments = assignments.filter(a => a.dueDate.split('T')[0] === dateStr);
     const dayTests = tests.filter(t => t.date.split('T')[0] === dateStr);
-    return [...dayAssignments, ...dayTests];
+    const dayEvents = schoolEvents.filter(e => 
+      e.date.split('T')[0] === dateStr && (!e.classId || e.classId === profile.classId)
+    );
+    return [...dayAssignments, ...dayTests, ...dayEvents];
   };
 
   return (
@@ -650,6 +660,7 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
               <CalendarGrid 
                 assignments={assignments}
                 tests={tests}
+                schoolEvents={schoolEvents.filter(e => !e.classId || e.classId === profile.classId)}
                 selectedDate={date}
                 onSelectDate={setDate}
               />
@@ -662,18 +673,73 @@ export default function StudentDashboard({ profile, notificationRedirect, clearN
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {getEventsForDate(date).map((event: any) => (
-                          <div key={event.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-4 group hover:border-indigo-200 transition-all">
-                            <div className={cn("w-1.5 h-12 rounded-full", 'subject' in event ? "bg-indigo-500" : "bg-rose-500")}></div>
-                            <div className="flex-1">
-                              <p className="font-bold text-gray-900">{event.title}</p>
-                              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">{event.subject || 'Test Event'}</p>
+                        {getEventsForDate(date).map((event: any) => {
+                          const isAssignment = 'dueDate' in event;
+                          const isTest = 'date' in event && !('type' in event);
+                          const isSchoolEvent = 'type' in event;
+
+                          return (
+                            <div 
+                              key={event.id} 
+                              className={cn(
+                                "p-4 rounded-3xl border transition-all",
+                                isAssignment ? "bg-indigo-50 border-indigo-100" : 
+                                isTest ? "bg-rose-50 border-rose-100" :
+                                "bg-amber-50 border-amber-100"
+                              )}
+                            >
+                              <div className="flex items-center gap-4 mb-3">
+                                <div className={cn(
+                                  "w-10 h-10 rounded-2xl flex items-center justify-center text-lg",
+                                  isAssignment ? "bg-white text-indigo-600" :
+                                  isTest ? "bg-white text-rose-600" :
+                                  "bg-white text-amber-600"
+                                )}>
+                                  {isAssignment ? '📚' : isTest ? '📝' : '🎉'}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-bold text-gray-900 truncate">{event.title}</p>
+                                  <p className={cn(
+                                    "text-[10px] font-bold uppercase tracking-widest",
+                                    isAssignment ? "text-indigo-500" :
+                                    isTest ? "text-rose-500" :
+                                    "text-amber-500"
+                                  )}>
+                                    {event.subject || event.type || 'Event'}
+                                  </p>
+                                </div>
+                                {isAssignment && (
+                                  <button 
+                                    onClick={() => setSelectedAssignment(event)}
+                                    className="p-2 bg-white rounded-xl text-indigo-600 shadow-sm"
+                                  >
+                                    <ChevronRight size={18} />
+                                  </button>
+                                )}
+                              </div>
+                              
+                              {isSchoolEvent && event.description && (
+                                <p className="text-xs text-gray-600 mb-3 line-clamp-2">{event.description}</p>
+                              )}
+
+                              {event.attachments && event.attachments.length > 0 && (
+                                <div className="flex flex-wrap gap-2">
+                                  {event.attachments.map((a: any, i: number) => (
+                                    <a 
+                                      key={i} 
+                                      href={a.url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 bg-white px-2 py-1 rounded-lg text-[10px] font-bold text-gray-700 hover:text-indigo-600 transition-colors border border-gray-100 shadow-sm"
+                                    >
+                                      {a.name}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                            <button className="p-2 text-gray-300 group-hover:text-indigo-600 transition-colors">
-                                <ChevronRight size={18} />
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                     </div>
                   )}
               </div>

@@ -2,11 +2,12 @@ import React, { useState, useEffect } from "react";
 import { UserProfile, Assignment, Category, Submission, Class } from "../types";
 import { db } from "../firebase";
 import { collection, onSnapshot, query, where, addDoc, getDocs, doc, deleteDoc, updateDoc, getDoc, increment, writeBatch } from "firebase/firestore";
-import { Plus, BookOpen, Calendar, CheckSquare, Trash2, Edit2, Star, Award, Users, Search, MessageSquare, ChevronRight, LayoutDashboard, Trophy } from "lucide-react";
+import { Plus, BookOpen, Calendar, CheckSquare, Trash2, Edit2, Star, Award, Users, Search, MessageSquare, ChevronRight, LayoutDashboard, Trophy, FileText, Link as LinkIcon, ExternalLink } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, formatDate } from "../lib/utils";
 import StudentProfileView from "./StudentProfileView";
 import ChatWindow from "./ChatWindow";
+import CalendarGrid from "./CalendarGrid";
 import { User as UserIcon, Save } from "lucide-react";
 
 function TeacherProfileEditor({ profile }: { profile: UserProfile }) {
@@ -73,13 +74,14 @@ interface TeacherDashboardProps {
 }
 
 export default function TeacherDashboard({ profile, notificationRedirect, clearNotificationRedirect }: TeacherDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'assignments' | 'students' | 'classes' | 'profile' | 'leaderboard'>('assignments');
+  const [activeTab, setActiveTab] = useState<'assignments' | 'students' | 'classes' | 'profile' | 'leaderboard' | 'calendar'>('assignments');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [leaderboard, setLeaderboard] = useState<UserProfile[]>([]);
+  const [schoolEvents, setSchoolEvents] = useState<SchoolEvent[]>([]);
   const [classStandings, setClassStandings] = useState<{id: string, name: string, points: number}[]>([]);
   
   const [loading, setLoading] = useState(true);
@@ -88,6 +90,7 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
   const [messagingUser, setMessagingUser] = useState<UserProfile | null>(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [showEventForm, setShowEventForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Form State
@@ -106,6 +109,13 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
   const [attachmentUrl, setAttachmentUrl] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newClassName, setNewClassName] = useState("");
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [eventDescription, setEventDescription] = useState("");
+  const [eventType, setEventType] = useState<"academic" | "holiday" | "extracurricular" | "other">("academic");
+  const [eventClassId, setEventClassId] = useState("");
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date());
+
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [showClassForm, setShowClassForm] = useState(false);
 
@@ -154,7 +164,11 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
       return () => unsubClasses();
     });
 
-    return () => { unsub(); cUnsub(); sUnsub(); clsUnsub(); uUnsub(); unsubL(); };
+    const evUnsub = onSnapshot(collection(db, "schoolEvents"), (snapshot) => {
+      setSchoolEvents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SchoolEvent)));
+    });
+
+    return () => { unsub(); cUnsub(); sUnsub(); clsUnsub(); uUnsub(); unsubL(); evUnsub(); };
   }, [profile.uid]);
 
   useEffect(() => {
@@ -352,6 +366,33 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
     await batch.commit();
   };
 
+  const handleCreateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventTitle || !eventDate || !eventType) {
+      alert("Please fill in event title, date and type!");
+      return;
+    }
+
+    await addDoc(collection(db, "schoolEvents"), {
+      title: eventTitle,
+      date: eventDate,
+      description: eventDescription,
+      type: eventType,
+      classId: eventClassId || null,
+      teacherId: profile.uid,
+      attachments: attachments,
+      createdAt: new Date().toISOString(),
+    });
+
+    setEventTitle("");
+    setEventDate("");
+    setEventDescription("");
+    setEventType("academic");
+    setEventClassId("");
+    setAttachments([]);
+    setShowEventForm(false);
+  };
+
   return (
     <div className="space-y-8">
       {/* Navigation Tabs */}
@@ -395,6 +436,16 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
         >
           <Trophy size={18} />
           Hall of Fame
+        </button>
+        <button 
+          onClick={() => { setActiveTab('calendar'); setSelectedStudent(null); }}
+          className={cn(
+             "flex items-center gap-2 text-sm font-bold transition-colors",
+             activeTab === 'calendar' ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"
+          )}
+        >
+          <Calendar size={18} />
+          Calendar
         </button>
         <button 
           onClick={() => setActiveTab('profile')}
@@ -499,6 +550,226 @@ export default function TeacherDashboard({ profile, notificationRedirect, clearN
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ) : activeTab === 'calendar' ? (
+          <motion.div
+            key="calendar"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-8"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">Academic Calendar</h3>
+                <p className="text-sm text-gray-400 font-bold uppercase tracking-widest mt-1">Assignments & Events</p>
+              </div>
+              <button
+                onClick={() => { setShowEventForm(!showEventForm); setAttachments([]); }}
+                className="bg-indigo-600 text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:bg-indigo-700 transition-all font-bold shadow-lg shadow-indigo-100"
+              >
+                <Plus size={20} />
+                {showEventForm ? "Cancel" : "Add School Event"}
+              </button>
+            </div>
+
+            {showEventForm && (
+              <motion.form 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-6"
+                onSubmit={handleCreateEvent}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Event Title</label>
+                    <input 
+                      type="text" 
+                      value={eventTitle}
+                      onChange={(e) => setEventTitle(e.target.value)}
+                      className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+                      placeholder="e.g. Science Fair 2024"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Type</label>
+                    <select 
+                      value={eventType}
+                      onChange={(e) => setEventType(e.target.value as any)}
+                      className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+                    >
+                      <option value="academic">Academic</option>
+                      <option value="holiday">Holiday</option>
+                      <option value="extracurricular">Extracurricular</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Event Date</label>
+                    <input 
+                      type="date" 
+                      value={eventDate}
+                      onChange={(e) => setEventDate(e.target.value)}
+                      className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">For Class (Optional)</label>
+                    <select 
+                      value={eventClassId}
+                      onChange={(e) => setEventClassId(e.target.value)}
+                      className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900"
+                    >
+                      <option value="">Global Event (All Students)</option>
+                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Description</label>
+                  <textarea 
+                    value={eventDescription}
+                    onChange={(e) => setEventDescription(e.target.value)}
+                    className="w-full bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-3 rounded-2xl outline-none font-bold text-gray-900 min-h-[100px]"
+                    placeholder="Tell everyone what this event is about..."
+                  />
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-gray-50">
+                   <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Event Attachments (Optional)</label>
+                   <div className="flex gap-2">
+                      <input 
+                        type="text" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)}
+                        placeholder="Link/File Name" className="flex-1 bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-2 rounded-xl outline-none text-sm font-bold"
+                      />
+                      <input 
+                        type="text" value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)}
+                        placeholder="URL (http...)" className="flex-1 bg-gray-50 border border-transparent focus:border-indigo-300 px-4 py-2 rounded-xl outline-none text-sm font-bold"
+                      />
+                      <button onClick={addAttachment} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-xs font-black uppercase hover:bg-indigo-600 hover:text-white transition-all">Add Link</button>
+                   </div>
+                   
+                   <div className="flex flex-col gap-2">
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleFileUpload} 
+                        className="hidden" 
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full py-6 border-2 border-dashed border-gray-100 rounded-3xl flex flex-col items-center justify-center gap-2 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group"
+                      >
+                         <Plus className="text-gray-300 group-hover:text-indigo-600 transition-colors" size={24} />
+                         <span className="text-xs font-bold text-gray-400 group-hover:text-indigo-600">Upload Flyer or Document</span>
+                         <span className="text-[10px] text-gray-300 group-hover:text-indigo-400">PDF, Image (Max 1MB)</span>
+                      </button>
+                   </div>
+
+                   {attachments.length > 0 && (
+                     <div className="flex flex-wrap gap-2 mt-2">
+                        {attachments.map((a, i) => (
+                          <div key={i} className="flex items-center gap-3 bg-indigo-50 text-indigo-600 px-3 py-2 rounded-xl text-xs font-black border border-indigo-100">
+                             <FileText size={14} />
+                             <span className="truncate max-w-[150px]">{a.name}</span>
+                             <button onClick={(e) => { e.preventDefault(); removeAttachment(i); }} className="hover:text-red-500 text-lg">×</button>
+                          </div>
+                        ))}
+                     </div>
+                   )}
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-gray-50">
+                   <button type="submit" className="bg-indigo-600 text-white px-10 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">Publish Event</button>
+                </div>
+              </motion.form>
+            )}
+
+            <div className="grid grid-cols-1 gap-8">
+              <CalendarGrid 
+                assignments={assignments}
+                schoolEvents={schoolEvents}
+                selectedDate={selectedCalendarDate}
+                onSelectDate={setSelectedCalendarDate}
+              />
+
+              <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                <h4 className="text-lg font-bold text-gray-900 mb-6">Schedule for {formatDate(selectedCalendarDate.toISOString())}</h4>
+                <div className="space-y-4">
+                  {[
+                    ...assignments.filter(a => a.dueDate.startsWith(selectedCalendarDate.toISOString().split('T')[0])),
+                    ...schoolEvents.filter(e => e.date.startsWith(selectedCalendarDate.toISOString().split('T')[0]))
+                  ].length === 0 ? (
+                    <div className="py-12 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                      <p className="text-gray-400 italic">No events or assignments scheduled for this day.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {assignments.filter(a => a.dueDate.startsWith(selectedCalendarDate.toISOString().split('T')[0])).map(a => (
+                        <div key={a.id} className="p-5 bg-indigo-50 border border-indigo-100 rounded-3xl flex items-center justify-between group">
+                          <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 rounded-2xl bg-white border border-indigo-100 flex items-center justify-center text-indigo-600">
+                                <BookOpen size={24} />
+                             </div>
+                             <div>
+                                <p className="font-bold text-gray-900">{a.title}</p>
+                                <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">{a.subject} • Assignment</p>
+                             </div>
+                          </div>
+                          <ChevronRight size={20} className="text-indigo-300 group-hover:text-indigo-600 transition-colors" />
+                        </div>
+                      ))}
+                      {schoolEvents.filter(e => e.date.startsWith(selectedCalendarDate.toISOString().split('T')[0])).map(e => (
+                        <div key={e.id} className="p-5 bg-amber-50 border border-amber-100 rounded-3xl hover:bg-amber-100 transition-all">
+                           <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-4">
+                                 <div className="w-12 h-12 rounded-2xl bg-white border border-amber-100 flex items-center justify-center text-amber-600 text-2xl">
+                                    🎉
+                                 </div>
+                                 <div>
+                                    <p className="font-bold text-gray-900">{e.title}</p>
+                                    <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest">{e.type} • School Event</p>
+                                 </div>
+                              </div>
+                              {e.teacherId === profile.uid && (
+                                <button
+                                  onClick={async () => {
+                                    if(window.confirm("Delete this event?")) {
+                                      await deleteDoc(doc(db, "schoolEvents", e.id));
+                                    }
+                                  }}
+                                  className="text-gray-300 hover:text-red-500"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                           </div>
+                           <p className="text-sm text-gray-600 mb-4">{e.description}</p>
+                           {e.attachments && e.attachments.length > 0 && (
+                             <div className="flex flex-wrap gap-2">
+                               {e.attachments.map((a, idx) => (
+                                 <a 
+                                   key={idx} 
+                                   href={a.url} 
+                                   target="_blank" 
+                                   rel="noopener noreferrer"
+                                   className="inline-flex items-center gap-2 bg-white px-3 py-2 rounded-xl text-[10px] font-black text-amber-700 hover:text-indigo-600 transition-colors shadow-sm"
+                                 >
+                                   {a.type === 'image' ? 'Flyer' : <FileText size={14} />} {a.name}
+                                   <ExternalLink size={12} />
+                                 </a>
+                               ))}
+                             </div>
+                           )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

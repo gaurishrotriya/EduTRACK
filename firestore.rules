@@ -18,5 +18,6 @@ service cloud.firestore {
     match /categories/{id} { allow write: if isTeacher(); }
     match /tests/{id} { allow write: if isTeacher(); }
     match /revisionItems/{id} { allow write: if isTeacher(); }
+    match /schoolEvents/{id} { allow write: if isTeacher(); }
   }
 }

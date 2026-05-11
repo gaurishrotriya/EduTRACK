@@ -60,6 +60,18 @@ export interface Test {
   date: string;
   teacherId: string;
   description?: string;
+  attachments?: { name: string; url: string; type: string }[];
+}
+
+export interface SchoolEvent {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  teacherId: string;
+  type: "academic" | "holiday" | "extracurricular" | "other";
+  attachments?: { name: string; url: string; type: string }[];
+  classId?: string; // Optional: can be for a specific class or global (if null)
 }
 
 export interface RevisionItem {
