@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { UserProfile, Assignment, Category, Submission, Class } from "../types";
+import { UserProfile, Assignment, Category, Submission, Class, SchoolEvent } from "../types";
 import { db } from "../firebase";
 import { collection, onSnapshot, query, where, addDoc, getDocs, doc, deleteDoc, updateDoc, getDoc, increment, writeBatch } from "firebase/firestore";
 import { Plus, BookOpen, Calendar, CheckSquare, Trash2, Edit2, Star, Award, Users, Search, MessageSquare, ChevronRight, LayoutDashboard, Trophy, FileText, Link as LinkIcon, ExternalLink } from "lucide-react";
